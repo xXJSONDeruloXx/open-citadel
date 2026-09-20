@@ -89,6 +89,10 @@ OC_SRCS := $(filter-out \
     src/symtab_glprobe.cpp \
     src/symtab_setjmp.cpp \
     loader/io_util.cpp \
+    open_citadel/crash_win32.cpp \
+    open_citadel/stdio_win32.cpp \
+    open_citadel/symtab_libc_win32.cpp \
+    open_citadel/symtab_libm_win32.cpp \
     android/cursor_draw.cpp \
     android/emulator_control.cpp \
     android/fb_probe.cpp \
