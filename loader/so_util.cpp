@@ -21,17 +21,9 @@
 #define __USE_MISC
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/stat.h>       
-#include <sys/mman.h>
-#include <fcntl.h>
 #include <string.h>
 #include <stdint.h>
 #include <leb128.h>
-#include <signal.h>
-#include <errno.h>
-#include <signal.h>
 #include <string>
 #include <filesystem>
 #include <type_traits>
@@ -43,6 +35,7 @@
 #include "platform.h"
 #include "io_util.h"
 #include "so_util.h"
+#include "host_memory.h"
 
 namespace fs = std::filesystem;
 
@@ -67,9 +60,14 @@ void so_relocate_all(so_module *mod);
 extern "C" void jni_resolve_native(so_module *so);
 
 static void so_flush_caches(so_module *mod, int write) {
-  // clear cache and set EXEC on all executable regions
-	__builtin___clear_cache((void*)mod->patch_base, (void*)(mod->cave_head));
-	mprotect((void*)mod->patch_base, mod->cave_head - mod->patch_base, PROT_EXEC|(write ? PROT_WRITE|PROT_READ : PROT_READ));
+  // Clear the host instruction cache and set executable permissions on the
+  // generated-code region using the current host platform's memory API.
+  const size_t size = mod->cave_head - mod->patch_base;
+  host_memory_flush_instruction_cache((void *)mod->patch_base, size);
+  unsigned int access = HOST_MEMORY_READ | HOST_MEMORY_EXECUTE;
+  if (write)
+    access |= HOST_MEMORY_WRITE;
+  host_memory_protect((void *)mod->patch_base, size, access);
 }
 
 /*
@@ -151,21 +149,15 @@ static so_module *so_load(void *so_data, uintptr_t load_addr, size_t sz) {
   size_t load_total_sz = load_sz + PATCH_SZ;
 
   // Now memory map the requested size
-  void *shd = MAP_FAILED;
-  int flags = MAP_PRIVATE|MAP_ANONYMOUS|MAP_POPULATE;
+  void *shd = host_memory_allocate(
+      load_addr ? (void *)(load_addr - PATCH_SZ) : nullptr,
+      load_total_sz, HOST_MEMORY_READ | HOST_MEMORY_WRITE);
 
-  if (load_addr) {
-    flags |= MAP_FIXED;
-    shd = mmap((void*)(load_addr - PATCH_SZ), load_total_sz, PROT_READ|PROT_WRITE, flags, 0, 0);
-  } else {
-    shd = mmap(0, load_total_sz, PROT_READ|PROT_WRITE, flags, 0, 0);
-  }
+  if (!shd)
+    goto so_load_err;
 
   if (load_addr == 0)
     load_addr = (uintptr_t)shd + PATCH_SZ;
-
-  if (shd == MAP_FAILED)
-    goto so_load_err;
 
   // Allocate arena for code patches, trampolines, etc
   // Ideally right under .text
@@ -312,8 +304,8 @@ static so_module *so_load(void *so_data, uintptr_t load_addr, size_t sz) {
 so_load_err:
   if (mod)
     free(mod);
-  if (shd != MAP_FAILED)
-    munmap(shd, load_total_sz);
+  if (shd)
+    host_memory_release(shd, load_total_sz);
 
   return NULL;
 }
@@ -967,11 +959,13 @@ void rehook_new(so_module *mod, ReentrantHook *hook, uintptr_t addr, uintptr_t d
 void rehook_hook(ReentrantHook *hook)
 {
   memcpy((void *)hook->addr, (void *)hook->trampoline, sizeof(hook->trampoline));
-  __builtin___clear_cache((void *)hook->addr, (void *)hook->addr+sizeof(hook->trampoline));
+  host_memory_flush_instruction_cache(
+      (void *)hook->addr, sizeof(hook->trampoline));
 }
 
 void rehook_unhook(ReentrantHook *hook)
 {
   memcpy((void *)hook->addr, (void *)hook->prologue, sizeof(hook->prologue));
-  __builtin___clear_cache((void *)hook->addr, (void *)hook->addr+sizeof(hook->prologue));
+  host_memory_flush_instruction_cache(
+      (void *)hook->addr, sizeof(hook->prologue));
 }

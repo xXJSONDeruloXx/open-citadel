@@ -1,7 +1,9 @@
 # Open Citadel
 
-Open Citadel is an experimental native Linux compatibility host for the original
-**Epic Citadel 1.07 Android/UE3 build**.
+Open Citadel is an experimental native compatibility host for the original
+**Epic Citadel 1.07 Android/UE3 build**. Linux is the currently running host;
+native Windows bring-up has started, but the complete game is not yet playable
+on Windows.
 
 It loads the original Android native game library directly on Linux instead of
 running a complete Android environment. The project began from the compatibility
@@ -32,6 +34,22 @@ when video is skipped; proper Linux video playback is the next parity step.
 
 See [OPEN_CITADEL.md](OPEN_CITADEL.md) for detailed donor-format notes,
 architecture, reverse-engineering findings, and the milestone tracker.
+
+## Native Windows bring-up
+
+The first Windows-specific slice moves guest ELF memory allocation,
+protection, and instruction-cache flushing behind a host API. A 32-bit MSVC
+smoke test for those operations can be built and run with:
+
+```powershell
+cmake -S tools/windows -B build/windows-host-memory -G "Visual Studio 17 2022" -A Win32
+cmake --build build/windows-host-memory --config Release
+ctest --test-dir build/windows-host-memory -C Release --output-on-failure
+```
+
+This validates only the loader memory substrate, not a runnable Windows game
+build; the remaining POSIX host APIs and Windows graphics/runtime dependencies
+are still to be ported.
 
 ## Donor policy
 

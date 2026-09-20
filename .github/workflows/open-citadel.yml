@@ -14,6 +14,7 @@ on:
       - "Makefile"
       - "tools/open_citadel_import.py"
       - "tests/test_open_citadel_import.py"
+      - "tools/windows/**"
       - "open_citadel/**"
       - "android/**"
       - "loader/**"
@@ -32,6 +33,17 @@ jobs:
         run: python3 -m unittest -v tests/test_open_citadel_import.py
       - name: Syntax check
         run: python3 -m py_compile tools/open_citadel_import.py tests/test_open_citadel_import.py
+
+  windows-host-memory:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure 32-bit Windows test
+        run: cmake -S tools/windows -B build/windows-host-memory -G "Visual Studio 17 2022" -A Win32
+      - name: Build 32-bit Windows test
+        run: cmake --build build/windows-host-memory --config Release --parallel
+      - name: Run Windows memory test
+        run: ctest --test-dir build/windows-host-memory -C Release --output-on-failure
 
   atc-decoder:
     runs-on: ubuntu-latest
