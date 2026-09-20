@@ -312,6 +312,7 @@ build remains a useful secondary platform check, not the current deliverable.
 - [ ] live visual/input validation of the in-game ImGui overlay (F2 produced no visible panel during automation)
 - [x] optional uncapped benchmark mode with VSync disabled for measurement
 - [x] live Windows viewport resizing with guest size updates and input scaling
+- [x] extracted Windows ZIP smoke run with external donor data and clean exit
 - [ ] live fullscreen switching visual verification
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately
