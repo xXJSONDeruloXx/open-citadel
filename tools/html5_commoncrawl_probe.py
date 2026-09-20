@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-"""Probe Common Crawl's 2013 index for Epic Citadel HTML5 deployment objects.
+"""Enumerate Common Crawl's 2013 Epic Citadel HTML5 deployment.
 
-This records archive metadata only. It does not persist recovered Epic payloads.
+Metadata and small textual samples only; recovered Epic payloads are never
+written as repository files or workflow artifacts.
 """
 from __future__ import annotations
 
 import gzip
 import hashlib
 import json
+import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 INDEXES = ("CC-MAIN-2013-20", "CC-MAIN-2013-48")
-TARGETS = (
-    "cdn.unrealengine.com/html5-4c0913f/UDKGame_Data.data",
-    "cdn.unrealengine.com/html5-4c0913f/UDKGame-Browser-Shipping.js.mem",
-    "www.unrealengine.com/html5/UDKGame_Data.js",
-    "www.unrealengine.com/html5/UDKGame-Browser-Shipping.js",
+PREFIXES = (
     "www.unrealengine.com/html5/",
+    "unrealengine.com/html5/",
+    "cdn.unrealengine.com/html5-4c0913f/",
+    "cdn.unrealengine.com/html5-",
 )
 OUT = Path("html5-commoncrawl-probe.json")
-UA = "Open-Citadel-CommonCrawl-Probe/1.0"
+UA = "Open-Citadel-CommonCrawl-Probe/2.0"
 
 
 def get(url: str, *, headers: dict[str, str] | None = None, timeout: int = 45) -> bytes:
@@ -33,11 +34,13 @@ def get(url: str, *, headers: dict[str, str] | None = None, timeout: int = 45) -
         return r.read()
 
 
-def query(index: str, target: str) -> list[dict]:
-    params = urllib.parse.urlencode({"url": target, "output": "json"})
-    url = f"https://index.commoncrawl.org/{index}-index?{params}"
+def query(index: str, target: str, *, prefix: bool = False) -> list[dict]:
+    params = {"url": target, "output": "json"}
+    if prefix:
+        params["matchType"] = "prefix"
+    url = f"https://index.commoncrawl.org/{index}-index?" + urllib.parse.urlencode(params)
     try:
-        body = get(url, timeout=30).decode("utf-8", errors="replace")
+        body = get(url, timeout=45).decode("utf-8", errors="replace")
     except Exception as exc:
         print(f"QUERY-ERR {index} {target}: {type(exc).__name__}: {exc}")
         return []
@@ -53,63 +56,92 @@ def query(index: str, target: str) -> list[dict]:
     return rows
 
 
-def sample_record(row: dict, limit: int = 65536) -> dict:
+def recover_payload(row: dict) -> bytes:
     filename = row.get("filename")
     offset = int(row.get("offset", "0"))
     length = int(row.get("length", "0"))
     if not filename or length <= 0:
-        return {"error": "missing WARC location"}
-
+        return b""
     url = f"https://data.commoncrawl.org/{filename}"
-    headers = {"Range": f"bytes={offset}-{offset + length - 1}"}
-    try:
-        raw = get(url, headers=headers, timeout=60)
-        warc = gzip.decompress(raw)
-    except Exception as exc:
-        return {"error": f"{type(exc).__name__}: {exc}"}
+    raw = get(
+        url,
+        headers={"Range": f"bytes={offset}-{offset + length - 1}"},
+        timeout=60,
+    )
+    warc = gzip.decompress(raw)
+    first = warc.find(b"\r\n\r\n")
+    second = warc.find(b"\r\n\r\n", first + 4) if first >= 0 else -1
+    return warc[second + 4 :] if second >= 0 else b""
 
-    sep = warc.find(b"\r\n\r\n")
-    http_start = sep + 4 if sep >= 0 else 0
-    http_sep = warc.find(b"\r\n\r\n", http_start)
-    payload = warc[http_sep + 4 :] if http_sep >= 0 else b""
-    return {
-        "warc_bytes": len(raw),
-        "decoded_record_bytes": len(warc),
-        "payload_bytes": len(payload),
-        "payload_sha256": hashlib.sha256(payload).hexdigest(),
-        "payload_prefix_hex": payload[:32].hex(),
-        "payload_sample_text": payload[:limit].decode("utf-8", errors="replace")[:500],
+
+def summarize(row: dict, *, inspect_text: bool = False) -> dict:
+    item = {
+        k: row.get(k)
+        for k in (
+            "url", "timestamp", "status", "mime", "digest",
+            "length", "offset", "filename"
+        )
     }
+    if inspect_text:
+        try:
+            payload = recover_payload(row)
+            text = payload.decode("utf-8", errors="replace")
+            refs = sorted(set(
+                re.findall(
+                    r"""(?:src|href)=["']([^"'#]+)|https?://[^"'<>\s]+""",
+                    text,
+                    flags=re.I,
+                )
+            ))
+            # re.findall with an alternation/group can return empty group values;
+            # also scan known UE3/Emscripten names directly.
+            names = sorted(set(re.findall(
+                r"""[A-Za-z0-9_./:-]+\.(?:js|data|mem|css|png|jpg|jpeg|gif|ogg|mp3|wav|bin)(?:\?[^"'<>\s]*)?""",
+                text,
+                flags=re.I,
+            )))
+            item["payload_bytes"] = len(payload)
+            item["payload_sha256"] = hashlib.sha256(payload).hexdigest()
+            item["html_asset_names"] = names
+            item["html_excerpt"] = text[:2000]
+        except Exception as exc:
+            item["inspect_error"] = f"{type(exc).__name__}: {exc}"
+    return item
 
 
 def main() -> int:
     report: dict[str, object] = {"indexes": {}}
-    hits = 0
     for index in INDEXES:
         idx: dict[str, object] = {}
-        for target in TARGETS:
-            rows = query(index, target)
-            print(f"{index} {target}: {len(rows)} record(s)")
+        for prefix in PREFIXES:
+            rows = query(index, prefix, prefix=True)
+            # Deduplicate captures by URL, retaining the earliest row for each URL.
+            by_url: dict[str, dict] = {}
+            for row in rows:
+                url = row.get("url", "")
+                if url and url not in by_url:
+                    by_url[url] = row
+            urls = sorted(by_url)
+            print(f"PREFIX {index} {prefix}: {len(rows)} captures / {len(urls)} unique URLs")
             compact = []
-            for row in rows[:20]:
-                item = {
-                    k: row.get(k)
-                    for k in (
-                        "url", "timestamp", "status", "mime", "digest",
-                        "length", "offset", "filename"
-                    )
+            for url in urls[:500]:
+                row = by_url[url]
+                inspect = row.get("mime") == "text/html" and url.rstrip("/") in {
+                    "http://www.unrealengine.com/html5",
+                    "https://www.unrealengine.com/html5",
+                    "http://unrealengine.com/html5",
+                    "https://unrealengine.com/html5",
                 }
-                print("  HIT", json.dumps(item, sort_keys=True))
-                # Inspect a small recovered response to verify the record really
-                # contains the expected object, without saving it as an artifact.
-                item["sample"] = sample_record(row)
+                item = summarize(row, inspect_text=inspect)
                 compact.append(item)
-                hits += 1
-            idx[target] = compact
+                print("  URL", url)
+                if inspect and item.get("html_asset_names"):
+                    for name in item["html_asset_names"]:
+                        print("    PAGE-REF", name)
+            idx[prefix] = compact
         report["indexes"][index] = idx
 
     OUT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(f"TOTAL-HITS {hits}")
     return 0
 
 
