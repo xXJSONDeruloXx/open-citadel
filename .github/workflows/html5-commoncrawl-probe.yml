@@ -7,6 +7,7 @@ on:
     paths:
       - "tools/html5_commoncrawl_probe.py"
       - "tools/html5_wayback_probe.py"
+      - "tools/html5_federated_archive_probe.py"
       - ".github/workflows/html5-commoncrawl-probe.yml"
   workflow_dispatch:
 
@@ -27,6 +28,8 @@ jobs:
         run: python3 tools/html5_wayback_probe.py
       - name: Probe Common Crawl
         run: python3 tools/html5_commoncrawl_probe.py
+      - name: Probe independent archives
+        run: python3 tools/html5_federated_archive_probe.py
       - name: Print Common Crawl report
         if: always()
         run: |
