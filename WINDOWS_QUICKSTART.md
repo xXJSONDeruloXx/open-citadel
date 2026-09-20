@@ -32,6 +32,9 @@ The game defaults to its 60 FPS cap. In F2, choose **Toggle next-launch FPS
 cap** and restart to uncap it, or set `OPEN_CITADEL_UNCAP_FPS=1` before
 launching. VSync is a separate setting; uncapped mode with VSync off can use
 substantially more CPU/GPU.
+For a benchmark run with both the game limit and VSync disabled, choose
+**Toggle uncapped benchmark (next launch)** in F2 or set
+`OPEN_CITADEL_UNCAPPED_BENCHMARK=1`. This preserves your saved VSync preference.
 
 The host runs as a 32-bit Windows process and supports 64-bit Windows. Keep the
 donor folder beside the executable, or set `OPEN_CITADEL_GAME_DIR` to its path.

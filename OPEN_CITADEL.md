@@ -204,14 +204,18 @@ window is fixed-size after startup because live UE3 viewport resizing currently
 leaves the scene partially black; F11/Alt+Enter display a notice instead of
 switching modes. A Windows settings file is created under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width, height, fullscreen,
-VSync, the FPS cap, mouse sensitivity, vertical inversion, and movement keys
-are persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2 opens a
-native options dialog for live mouse-look and VSync changes; it can also toggle
-the FPS cap for the next launch. Its Display submenu browses monitor modes,
+VSync, the FPS cap, benchmark mode, mouse sensitivity, vertical inversion, and
+movement keys are persistent; `OPEN_CITADEL_CONFIG` can select another file.
+F2 opens a native options dialog for live mouse-look and VSync changes; it can
+also toggle the FPS cap and uncapped-benchmark mode for the next launch. Benchmark mode
+starts UE3 with `-benchmark` and forces VSync off without changing the saved
+VSync preference. Its Display submenu browses monitor modes,
 saves windowed width/height, and toggles borderless fullscreen for the next
 launch; custom sizes remain available through the environment variables.
-Display-mode and FPS-cap edits take effect after restarting, and matching
-environment variables override the saved values. VSync defaults on;
+Display-mode, FPS-cap, and benchmark-mode edits take effect after restarting,
+and matching environment variables override the saved values. Set
+`OPEN_CITADEL_UNCAPPED_BENCHMARK=1` to select benchmark mode from the command
+line. VSync defaults on;
 `OPEN_CITADEL_VSYNC=0` disables it. The game defaults
 to its 60 FPS cap; set `OPEN_CITADEL_UNCAP_FPS=1` or use the F2 option to
 disable it. With VSync off, the 1280x720 Windows build measured about 59.6 FPS
@@ -281,6 +285,7 @@ build remains a useful secondary platform check, not the current deliverable.
 - [ ] native gamepad behavior
 - [ ] OpenSL ES compatibility
 - [x] persistent Windows display, mouse, movement-key, and FPS-cap settings with F2 UI
+- [x] optional uncapped benchmark mode with VSync disabled for measurement
 - [ ] live viewport resizing/fullscreen switching
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately

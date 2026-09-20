@@ -19,6 +19,7 @@ struct UserSettings {
     bool fullscreen = false;
     bool vsync = true;
     bool uncap_fps = false;
+    bool uncapped_benchmark = false;
     float mouse_sensitivity = 1.0f;
     bool invert_mouse_y = false;
     std::string move_forward = "w";
@@ -143,6 +144,8 @@ inline void read_user_settings(std::istream &input, UserSettings *settings)
             parse_settings_boolean(value, &settings->vsync);
         } else if (key == "uncap_fps") {
             parse_settings_boolean(value, &settings->uncap_fps);
+        } else if (key == "uncapped_benchmark") {
+            parse_settings_boolean(value, &settings->uncapped_benchmark);
         } else if (key == "mouse_sensitivity") {
             parse_settings_float(value, 0.1f, 4.0f,
                                 &settings->mouse_sensitivity);
@@ -172,6 +175,8 @@ inline void write_user_settings(std::ostream &output,
            << "vsync=" << (settings.vsync ? "true" : "false") << '\n'
            << "uncap_fps=" << (settings.uncap_fps ? "true" : "false")
            << '\n'
+           << "uncapped_benchmark="
+           << (settings.uncapped_benchmark ? "true" : "false") << '\n'
            << "mouse_sensitivity=" << std::fixed << std::setprecision(2)
            << settings.mouse_sensitivity << '\n'
            << "invert_mouse_y=" << (settings.invert_mouse_y ? "true" : "false")

@@ -528,10 +528,11 @@ static bool show_settings_dialog(
     open_citadel::UserSettings *settings,
     open_citadel::UserSettings *saved_settings,
     open_citadel::MovementKeyBindings *bindings,
-    open_citadel::MovementKey *pending_rebind)
+    open_citadel::MovementKey *pending_rebind,
+    bool *active_vsync)
 {
     if (!window || !settings || !saved_settings || !bindings ||
-        !pending_rebind)
+        !pending_rebind || !active_vsync)
         return false;
 
     const SDL_MessageBoxButtonData buttons[] = {
@@ -546,6 +547,7 @@ static bool show_settings_dialog(
         {0, 7, "Display..."},
 #if defined(_WIN32)
         {0, 8, "Toggle next-launch FPS cap"},
+        {0, 9, "Toggle uncapped benchmark (next launch)"},
 #endif
     };
 
@@ -561,21 +563,28 @@ static bool show_settings_dialog(
         char message[1024];
         std::snprintf(
             message, sizeof(message),
-            "Mouse sensitivity: %.1f\nVertical look: %s\nVSync: %s\n"
+            "Mouse sensitivity: %.1f\nVertical look: %s\n"
+            "VSync preference: %s (active now: %s)\n"
 #if defined(_WIN32)
             "Game 60 FPS cap next launch: %s\n"
+            "Uncapped benchmark next launch: %s\n"
 #endif
             "\n"
             "Movement: %s / %s / %s / %s\n\n"
             "Window: %d x %d (%s)\n"
-            "Frame cap, window size, and fullscreen apply after restarting.\n"
+            "FPS and display options apply after restarting.\n"
+#if defined(_WIN32)
+            "Benchmark mode enables UE3 -benchmark and forces VSync off.\n"
+#endif
             "Settings file: %s\nChoose Controls... or Display... "
             "for more options.",
             settings->mouse_sensitivity,
             settings->invert_mouse_y ? "inverted" : "normal",
             settings->vsync ? "on" : "off",
+            *active_vsync ? "on" : "off",
 #if defined(_WIN32)
-            settings->uncap_fps ? "off" : "on",
+            settings->uncap_fps || settings->uncapped_benchmark ? "off" : "on",
+            settings->uncapped_benchmark ? "on" : "off",
 #endif
             forward.c_str(),
             backward.c_str(), left.c_str(), right.c_str(), settings->width,
@@ -616,8 +625,9 @@ static bool show_settings_dialog(
             changed = true;
             break;
         case 4:
-            settings->vsync = !settings->vsync;
-            if (SDL_GL_SetSwapInterval(settings->vsync ? 1 : 0) != 0)
+            *active_vsync = !*active_vsync;
+            settings->vsync = *active_vsync;
+            if (SDL_GL_SetSwapInterval(*active_vsync ? 1 : 0) != 0)
                 fprintf(stderr, "OpenCitadel: swap interval change failed: %s\n",
                         SDL_GetError());
             changed = true;
@@ -642,6 +652,10 @@ static bool show_settings_dialog(
             settings->uncap_fps = !settings->uncap_fps;
             changed = true;
             break;
+        case 9:
+            settings->uncapped_benchmark = !settings->uncapped_benchmark;
+            changed = true;
+            break;
 #endif
         default:
             return false;
@@ -650,6 +664,7 @@ static bool show_settings_dialog(
         if (changed) {
             saved_settings->vsync = settings->vsync;
             saved_settings->uncap_fps = settings->uncap_fps;
+            saved_settings->uncapped_benchmark = settings->uncapped_benchmark;
             saved_settings->mouse_sensitivity = settings->mouse_sensitivity;
             saved_settings->invert_mouse_y = settings->invert_mouse_y;
             if (!save_user_settings(settings_path, *saved_settings))
@@ -942,7 +957,9 @@ int main(int argc, char **argv)
                 "OPEN_CITADEL_MOUSE_SENSITIVITY scales drag-look; "
                 "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look; "
                 "OPEN_CITADEL_VSYNC=0 disables VSync; "
-                "OPEN_CITADEL_UNCAP_FPS=1 disables the Windows 60 FPS cap.\n");
+                "OPEN_CITADEL_UNCAP_FPS=1 disables the Windows 60 FPS cap; "
+                "OPEN_CITADEL_UNCAPPED_BENCHMARK=1 disables both the game "
+                "cap and VSync for benchmarking.\n");
         if (argc == 2)
             return 0;
         return 2;
@@ -1019,17 +1036,27 @@ int main(int argc, char **argv)
     settings.fullscreen = env_bool("OPEN_CITADEL_FULLSCREEN", settings.fullscreen);
     settings.vsync = env_bool("OPEN_CITADEL_VSYNC", settings.vsync);
     settings.uncap_fps = env_bool("OPEN_CITADEL_UNCAP_FPS", settings.uncap_fps);
+#if defined(_WIN32)
+    settings.uncapped_benchmark = env_bool(
+        "OPEN_CITADEL_UNCAPPED_BENCHMARK", settings.uncapped_benchmark);
+#endif
     settings.mouse_sensitivity = env_float(
         "OPEN_CITADEL_MOUSE_SENSITIVITY", settings.mouse_sensitivity, 0.1f, 4.0f);
     settings.invert_mouse_y = env_bool(
         "OPEN_CITADEL_INVERT_MOUSE_Y", settings.invert_mouse_y);
 #if defined(_WIN32)
-    const bool active_uncap_fps = settings.uncap_fps;
-    open_citadel_java_set_uncap_fps(settings.uncap_fps ? 1 : 0);
+    const bool active_uncap_fps =
+        settings.uncap_fps || settings.uncapped_benchmark;
+    bool active_vsync = settings.vsync && !settings.uncapped_benchmark;
+    open_citadel_java_set_uncap_fps(active_uncap_fps ? 1 : 0);
     fprintf(stderr, "OpenCitadel: game FPS cap=%s\n",
-            settings.uncap_fps ? "disabled" : "enabled");
+            active_uncap_fps ? "disabled" : "enabled");
+    fprintf(stderr, "OpenCitadel: uncapped benchmark=%s; VSync=%s\n",
+            settings.uncapped_benchmark ? "enabled" : "disabled",
+            active_vsync ? "on" : "off");
 #else
     const bool active_uncap_fps = false;
+    bool active_vsync = settings.vsync;
 #endif
 
     open_citadel::MovementKeyBindings movement_bindings;
@@ -1072,7 +1099,7 @@ int main(int argc, char **argv)
                 width, height);
     }
 
-    if (SDL_GL_SetSwapInterval(settings.vsync ? 1 : 0) != 0)
+    if (SDL_GL_SetSwapInterval(active_vsync ? 1 : 0) != 0)
         fprintf(stderr, "OpenCitadel: swap interval unavailable: %s\n",
                 SDL_GetError());
     if (getenv("OPEN_CITADEL_TRACE_INPUT")) {
@@ -1497,7 +1524,8 @@ int main(int argc, char **argv)
                             send_keyboard_movement(event_time);
                         const bool rebind_requested = show_settings_dialog(
                             window, settings_path, &settings, &saved_settings,
-                            &movement_bindings, &pending_movement_rebind);
+                            &movement_bindings, &pending_movement_rebind,
+                            &active_vsync);
                         SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
                         if (rebind_requested) {
                             char prompt[160];
@@ -1646,7 +1674,7 @@ int main(int argc, char **argv)
             fprintf(stderr,
                     "OpenCitadel: fps=%.1f frametime=%.2fms vsync=%s "
                     "uncap=%s size=%dx%d\n",
-                    fps, frame_time_ms, settings.vsync ? "on" : "off",
+                    fps, frame_time_ms, active_vsync ? "on" : "off",
                     active_uncap_fps ? "on" : "off", width, height);
             fps_sample_frames = frames;
             fps_sample_start = fps_now;
