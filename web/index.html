@@ -5,16 +5,22 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Open Citadel — Web Preview</title>
   <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+  {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"}}
+  </script>
 </head>
 <body>
   <div id="app">
     <canvas id="view"></canvas>
     <section id="hud">
       <h1>Open Citadel</h1>
-      <p id="status">Loading Citadel scene…</p>
-      <p class="help">Drag to look · WASD move · wheel changes speed</p>
+      <p id="status">Starting renderer…</p>
+      <p class="help">Drag to look · touch controls appear on mobile · WASD on desktop</p>
       <button id="enter" hidden>Enter Citadel</button>
     </section>
+    <div id="touch" hidden>
+      <div class="stick"><button data-key="KeyW">▲</button><span><button data-key="KeyA">◀</button><button data-key="KeyS">▼</button><button data-key="KeyD">▶</button></span></div>
+    </div>
     <div id="progress"><i></i></div>
   </div>
   <script type="module" src="./main.js"></script>
