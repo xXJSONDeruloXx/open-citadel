@@ -22,6 +22,7 @@ std::string g_main_obb;
 std::string g_patch_obb;
 std::atomic<int> g_shutdown{0};
 std::atomic<long> g_frames{0};
+std::atomic<bool> g_uncap_fps{false};
 UE3JavaApp g_activity;
 std::mutex g_prefs_lock;
 std::unordered_map<std::string, std::string> g_prefs;
@@ -40,12 +41,14 @@ static jstring jstr(const char *value)
 static jstring cb_get_app_command_line(JNIEnv *, jobject)
 {
     const char *override_line = std::getenv("OPEN_CITADEL_COMMAND_LINE");
-    if (override_line && *override_line)
-        return jstr(override_line);
-
-    /* Match the donor's assets/UE3CommandLine.txt. Native Windows audio is
-     * provided by the SDL-backed Java song/sound callbacks below. */
-    return jstr("EpicCitadel.udk -installed -Exec=UnrealFrontend_TmpExec.txt");
+    std::string command_line = override_line && *override_line
+        ? override_line
+        : "EpicCitadel.udk -installed -Exec=UnrealFrontend_TmpExec.txt";
+    /* UE3's benchmark startup flag bypasses Epic Citadel's 60 Hz tick cap. */
+    if (g_uncap_fps.load(std::memory_order_acquire) &&
+        command_line.find("-benchmark") == std::string::npos)
+        command_line += " -benchmark";
+    return jstr(command_line.c_str());
 }
 
 static jobject cb_get_asset_manager(JNIEnv *, jobject)
@@ -513,6 +516,11 @@ extern "C" int open_citadel_java_shutdown_requested(void)
 extern "C" void open_citadel_java_clear_shutdown(void)
 {
     g_shutdown.store(0, std::memory_order_release);
+}
+
+extern "C" void open_citadel_java_set_uncap_fps(int enabled)
+{
+    g_uncap_fps.store(enabled != 0, std::memory_order_release);
 }
 
 extern "C" long open_citadel_java_frames_presented(void)

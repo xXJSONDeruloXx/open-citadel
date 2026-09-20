@@ -360,6 +360,9 @@ static bool show_settings_dialog(
         {0, 4, "Toggle VSync"},
         {0, 5, "Reset mouse"},
         {0, 6, "Controls..."},
+#if defined(_WIN32)
+        {0, 7, "Toggle next-launch FPS cap"},
+#endif
     };
 
     for (;;) {
@@ -374,14 +377,22 @@ static bool show_settings_dialog(
         char message[1024];
         std::snprintf(
             message, sizeof(message),
-            "Mouse sensitivity: %.1f\nVertical look: %s\nVSync: %s\n\n"
+            "Mouse sensitivity: %.1f\nVertical look: %s\nVSync: %s\n"
+#if defined(_WIN32)
+            "Game 60 FPS cap next launch: %s\n"
+#endif
+            "\n"
             "Movement: %s / %s / %s / %s\n\n"
             "Window: %d x %d (%s)\n"
-            "Window size and fullscreen apply after restarting.\n"
+            "Frame cap, window size, and fullscreen apply after restarting.\n"
             "Settings file: %s\nChoose Controls... to rebind movement.",
             settings->mouse_sensitivity,
             settings->invert_mouse_y ? "inverted" : "normal",
-            settings->vsync ? "on" : "off", forward.c_str(),
+            settings->vsync ? "on" : "off",
+#if defined(_WIN32)
+            settings->uncap_fps ? "off" : "on",
+#endif
+            forward.c_str(),
             backward.c_str(), left.c_str(), right.c_str(), settings->width,
             settings->height, settings->fullscreen ? "fullscreen" : "windowed",
             settings_path.empty() ? "unavailable" : settings_path.string().c_str());
@@ -437,12 +448,19 @@ static bool show_settings_dialog(
                                      pending_rebind))
                 return true;
             continue;
+#if defined(_WIN32)
+        case 7:
+            settings->uncap_fps = !settings->uncap_fps;
+            changed = true;
+            break;
+#endif
         default:
             return false;
         }
 
         if (changed) {
             saved_settings->vsync = settings->vsync;
+            saved_settings->uncap_fps = settings->uncap_fps;
             saved_settings->mouse_sensitivity = settings->mouse_sensitivity;
             saved_settings->invert_mouse_y = settings->invert_mouse_y;
             if (!save_user_settings(settings_path, *saved_settings))
@@ -734,7 +752,8 @@ int main(int argc, char **argv)
                 "OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.\n"
                 "OPEN_CITADEL_MOUSE_SENSITIVITY scales drag-look; "
                 "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look; "
-                "OPEN_CITADEL_VSYNC=0 disables VSync.\n");
+                "OPEN_CITADEL_VSYNC=0 disables VSync; "
+                "OPEN_CITADEL_UNCAP_FPS=1 disables the Windows 60 FPS cap.\n");
         if (argc == 2)
             return 0;
         return 2;
@@ -810,10 +829,19 @@ int main(int argc, char **argv)
     settings.height = env_int("OPEN_CITADEL_HEIGHT", settings.height, 240, 4320);
     settings.fullscreen = env_bool("OPEN_CITADEL_FULLSCREEN", settings.fullscreen);
     settings.vsync = env_bool("OPEN_CITADEL_VSYNC", settings.vsync);
+    settings.uncap_fps = env_bool("OPEN_CITADEL_UNCAP_FPS", settings.uncap_fps);
     settings.mouse_sensitivity = env_float(
         "OPEN_CITADEL_MOUSE_SENSITIVITY", settings.mouse_sensitivity, 0.1f, 4.0f);
     settings.invert_mouse_y = env_bool(
         "OPEN_CITADEL_INVERT_MOUSE_Y", settings.invert_mouse_y);
+#if defined(_WIN32)
+    const bool active_uncap_fps = settings.uncap_fps;
+    open_citadel_java_set_uncap_fps(settings.uncap_fps ? 1 : 0);
+    fprintf(stderr, "OpenCitadel: game FPS cap=%s\n",
+            settings.uncap_fps ? "disabled" : "enabled");
+#else
+    const bool active_uncap_fps = false;
+#endif
 
     open_citadel::MovementKeyBindings movement_bindings;
     if (!movement_bindings.configure(
@@ -1428,9 +1456,9 @@ int main(int argc, char **argv)
                 : 0.0;
             fprintf(stderr,
                     "OpenCitadel: fps=%.1f frametime=%.2fms vsync=%s "
-                    "size=%dx%d\n",
+                    "uncap=%s size=%dx%d\n",
                     fps, frame_time_ms, settings.vsync ? "on" : "off",
-                    width, height);
+                    active_uncap_fps ? "on" : "off", width, height);
             fps_sample_frames = frames;
             fps_sample_start = fps_now;
         }

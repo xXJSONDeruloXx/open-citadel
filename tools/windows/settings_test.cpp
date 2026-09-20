@@ -21,6 +21,7 @@ int main()
         "height=1080\n"
         "fullscreen=ON\n"
         "vsync=off\n"
+        "uncap_fps=true\n"
         "mouse_sensitivity=9.0\n"
         "invert_mouse_y=true\n"
         "move_forward=Up\n"
@@ -35,6 +36,7 @@ int main()
     CHECK(settings.height == 240);
     CHECK(settings.fullscreen);
     CHECK(!settings.vsync);
+    CHECK(settings.uncap_fps);
     CHECK(settings.mouse_sensitivity == 4.0f);
     CHECK(settings.invert_mouse_y);
     CHECK(settings.move_forward == "Up");
@@ -51,6 +53,7 @@ int main()
     CHECK(round_trip.height == settings.height);
     CHECK(round_trip.fullscreen == settings.fullscreen);
     CHECK(round_trip.vsync == settings.vsync);
+    CHECK(round_trip.uncap_fps == settings.uncap_fps);
     CHECK(round_trip.mouse_sensitivity == settings.mouse_sensitivity);
     CHECK(round_trip.invert_mouse_y == settings.invert_mouse_y);
     CHECK(round_trip.move_forward == settings.move_forward);

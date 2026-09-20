@@ -11,10 +11,8 @@ scene. Mouse clicks and drags are translated to the original touch controls,
 Windows SDL audio handles the Java MP3-song/WAV-sound callbacks, and display
 and mouse-look settings persist. A portable Windows ZIP now bundles the host,
 runtime DLLs, donor importer, and dependency notices without proprietary game
-data. F2 also provides persistent movement-key rebinding. Live keyboard/gamepad
-behavior and OpenSL ES effects still need work. Keyboard event translation and
-host shortcuts are implemented, but native key delivery has not yet been
-verified.
+data. WASD movement is confirmed working, and F2 provides persistent movement-
+key rebinding. Native gamepad support and OpenSL ES effects remain unfinished.
 The project began from the compatibility substrate developed in
 `i-port-katamari`, but Open Citadel is now a standalone project and is not
 limited to PortMaster.
@@ -31,11 +29,12 @@ NVIDIA GeForce RTX 4090 through ANGLE. The bring-up has verified:
 - ATITC fallback using the texture caches shipped in the donor
 - visible 3D scene rendering; mouse click/drag reaches the game's touch UI
 - native SDL audio device started the donor's `town_render` MP3 callback
-- MP3/WAV decoding and playback tests, plus seven Win32 ABI/input/settings tests
+- MP3/WAV decoding and playback tests, plus eight Windows loader/ABI/input/
+  settings/audio tests
 
 This is a working bring-up, not a finished port. The Java audio callback path
-now plays donor music and supports WAV sound callbacks, but OpenSL ES is not
-implemented and live keyboard/gamepad behavior still needs verification.
+now plays donor music and supports WAV sound callbacks. WASD movement has been
+confirmed; native gamepad input and OpenSL ES are not implemented yet.
 Clean-machine validation and an installer remain future work; the portable ZIP
 can be generated with CPack.
 
@@ -90,6 +89,14 @@ Backward, Left, and Right; Escape cancels a rebind and Reset to WASD restores
 the defaults. Bindings persist in the same settings file.
 `OPEN_CITADEL_CONFIG` can select a different settings file.
 
+On Windows, F2 also offers **Toggle next-launch FPS cap**. The default is the
+game's 60 FPS cap; changing the option requires a restart. The saved setting
+can also be overridden with `OPEN_CITADEL_UNCAP_FPS=1`. VSync is independent:
+when enabled it still synchronizes presentation to the display, while uncapped
+mode with VSync off can use substantially more CPU/GPU. The uncapped mode was
+measured above 1,200 FPS at 1280x720 on an RTX 4090; actual rates depend on
+hardware and scene load.
+
 The settings file also stores window width/height and fullscreen preference;
 those display choices apply on the next launch because live Win32 viewport
 resizing/fullscreen switching is not reliable yet. Environment variables
@@ -110,14 +117,19 @@ $env:OPEN_CITADEL_HEIGHT = '1080'
 .\build\windows-app-win32\Release\open-citadel.exe
 ```
 
+Width and height are selected independently (320–7680 by 240–4320); there is no
+preset aspect-ratio list. Startup rendering has been verified at 1024x768 (4:3)
+and 2560x1080 (21:9 ultrawide), as well as 1920x1080. Restart after changing
+either dimension; live viewport resizing is not supported yet.
+
 For borderless desktop fullscreen, set `$env:OPEN_CITADEL_FULLSCREEN = '1'`
 before launching. Fullscreen at the desktop's 3440×1440 size and windowed
 1920×1080 startup have both rendered successfully. F11 and Alt+Enter currently
 report that live display-mode changes are unavailable. F1 shows help; Escape
-sends Back to the game. WASD movement is wired through the guest joystick
-callback but still needs live end-to-end verification. Rebindable movement
-controls are available from F2; gamepad behavior remains future work. VSync is
-on by default and can be changed with F2 or `OPEN_CITADEL_VSYNC=0`.
+sends Back to the game. WASD movement through the guest joystick callback is
+confirmed working. Rebindable movement controls are available from F2; gamepad
+behavior remains future work. VSync is on by default and can be changed with
+F2 or `OPEN_CITADEL_VSYNC=0`.
 The host reports average FPS and frame time to its console once per second,
 after the initial scene frames.
 

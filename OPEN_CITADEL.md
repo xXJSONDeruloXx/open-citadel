@@ -197,26 +197,31 @@ shaders. Mouse clicks and held drags reach the game's touch UI and camera.
 VSync defaults on, with `OPEN_CITADEL_VSYNC=0` as an override.
 Windowed resolution is selected at launch with `OPEN_CITADEL_WIDTH` and
 `OPEN_CITADEL_HEIGHT`; `OPEN_CITADEL_FULLSCREEN=1` starts borderless desktop
-fullscreen. Both a 1920x1080 window and 3440x1440 fullscreen launch rendered
-successfully. The Windows window is fixed-size after startup because live UE3
-viewport resizing currently leaves the scene partially black; F11/Alt+Enter
-display a notice instead of switching modes. A Windows settings file is
-created under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width,
-height, fullscreen, VSync, mouse sensitivity, vertical inversion, and movement
-keys are persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2
-opens a native options dialog for live mouse-look and VSync changes; its
-Controls dialog rebinds the four movement directions. Display-mode edits take
-effect after restarting, and matching environment variables override the saved
-values. The host reports average FPS and frame time once per second after the
-initial scene frames. A Windows 1280x720 sample stayed near 60 FPS with host
-VSync both enabled and disabled, so an additional UE3-side frame cap remains to
-be identified before the game can be uncapped.
+fullscreen. Startup rendering has also been verified at 1024x768 (4:3) and
+2560x1080 (21:9 ultrawide); width and height are independently selectable
+within 320–7680 by 240–4320, with no preset aspect-ratio list. The Windows
+window is fixed-size after startup because live UE3 viewport resizing currently
+leaves the scene partially black; F11/Alt+Enter display a notice instead of
+switching modes. A Windows settings file is created under
+`%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width, height, fullscreen,
+VSync, the FPS cap, mouse sensitivity, vertical inversion, and movement keys
+are persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2 opens a
+native options dialog for live mouse-look and VSync changes; it can also toggle
+the FPS cap for the next launch. Display-mode and FPS-cap edits take effect
+after restarting, and matching environment variables override the saved
+values. VSync defaults on; `OPEN_CITADEL_VSYNC=0` disables it. The game defaults
+to its 60 FPS cap; set `OPEN_CITADEL_UNCAP_FPS=1` or use the F2 option to
+disable it. With VSync off, the 1280x720 Windows build measured about 59.6 FPS
+with the cap and 1,250–1,380 FPS uncapped on an RTX 4090. Rates vary by hardware
+and scene load, and uncapped mode can significantly increase CPU/GPU use. The
+host reports average FPS and frame time once per second after the initial
+scene frames.
 
 The Windows host maps configurable movement keys (W/A/S/D by default) to a
 virtual left-stick axis, releases held movement on focus loss, and keeps mouse
-click-to-walk and drag-to-look input.
-Mouse sensitivity and vertical inversion can be configured at launch. These
-keyboard and movement paths still need live end-to-end confirmation. Input
+click-to-walk and drag-to-look input. WASD movement has been confirmed working
+in a live user test; rebinding and native gamepad input are not yet confirmed.
+Mouse sensitivity and vertical inversion can be configured at launch. Input
 tracing records SDL key events and the guest callback results for keyboard and
 virtual-stick delivery. SDL opens a native
 44.1 kHz stereo device; the donor's `town_render` MP3 and a real donor WAV have
@@ -234,7 +239,7 @@ The validation sequence is:
 3. Android asset access
 4. UE3 filesystem startup
 5. GLES2 context and shaders
-6. stable frame pacing and window lifecycle
+6. default and uncapped frame pacing, plus window lifecycle
 7. keyboard/gamepad actions and rebinding
 8. audio compatibility
 9. user-facing quality-of-life settings and packaging
@@ -242,10 +247,10 @@ The validation sequence is:
 The Windows loader memory backend and ELF32 ABI parser have dedicated Win32
 tests, the GLES resolver has a 32-bit cdecl-to-stdcall regression test, and the
 SDL mixer has a dummy-device WAV/stream lifecycle test. The native application
-reaches a rendered scene; the remaining gates are interactive keyboard/gamepad
-paths, OpenSL ES effects, settings polish, packaging, and automated Windows
-validation. The existing Linux x86 CI build remains a useful secondary
-platform check, not the current deliverable.
+reaches a rendered scene and confirmed WASD movement; the remaining gates
+include movement-rebind and gamepad verification, OpenSL ES effects, settings
+polish, packaging, and automated Windows validation. The existing Linux x86 CI
+build remains a useful secondary platform check, not the current deliverable.
 
 ## Milestones
 
@@ -262,14 +267,17 @@ platform check, not the current deliverable.
 - [x] first GLES2 shader compile/draw and ATITC fallback
 - [x] default game-data discovery and explicit path overrides
 - [x] launch-time window resolution and borderless fullscreen
+- [x] windowed startup rendering at 4:3 and 21:9 aspect ratios
+- [x] optional Windows uncapped FPS mode, verified against the 60 FPS default
 - [x] mouse click/drag translated to the game's touch controls
 - [x] Android input key/axis constants checked against ABI values
 - [x] SDL audio output and Java MP3/WAV callback mixer
 - [ ] generic game profile separated from Katamari-specific host code
-- [ ] manual end-to-end keyboard, movement, and rebind verification
+- [x] manual end-to-end WASD movement verification
+- [ ] movement-key rebind verification
 - [ ] native gamepad behavior
 - [ ] OpenSL ES compatibility
-- [x] persistent Windows display, mouse, and movement-key settings with F2 UI
+- [x] persistent Windows display, mouse, movement-key, and FPS-cap settings with F2 UI
 - [ ] live viewport resizing/fullscreen switching
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately

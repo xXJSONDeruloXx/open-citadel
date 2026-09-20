@@ -19,11 +19,16 @@ your own Epic Citadel 1.07 XAPK.
    ```
 
 Click the ground to walk and drag with either mouse button to look around.
-W/A/S/D are intended to move; live end-to-end keyboard behavior is still being
-verified. F1 shows controls, and F2 opens desktop settings. Choose
+W/A/S/D movement is confirmed working. F1 shows controls, and F2 opens desktop
+settings. Choose
 **Controls...** there to rebind movement keys; Escape cancels a rebind and
 **Reset to WASD** restores defaults. Escape outside key capture sends Back.
 Settings are saved under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
+
+The game defaults to its 60 FPS cap. In F2, choose **Toggle next-launch FPS
+cap** and restart to uncap it, or set `OPEN_CITADEL_UNCAP_FPS=1` before
+launching. VSync is a separate setting; uncapped mode with VSync off can use
+substantially more CPU/GPU.
 
 The host runs as a 32-bit Windows process and supports 64-bit Windows. Keep the
 donor folder beside the executable, or set `OPEN_CITADEL_GAME_DIR` to its path.
