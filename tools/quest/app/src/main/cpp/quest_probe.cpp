@@ -263,6 +263,8 @@ bool clear_eye(EyeSwapchain &eye, GLuint framebuffer, const float color[4])
                            GL_TEXTURE_2D, eye.images.at(index).image, 0);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         LOGE("eye framebuffer incomplete");
+        XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        xrReleaseSwapchainImage(eye.handle, &release);
         return false;
     }
     glViewport(0, 0, eye.width, eye.height);
@@ -285,11 +287,20 @@ void xr_main(ANativeActivity *activity)
     XrSpace local_space = XR_NULL_HANDLE;
     std::array<EyeSwapchain, 2> eyes{};
     GLuint framebuffer = 0;
+    uint32_t extension_count = 0;
+    XrSystemId system_id = XR_NULL_SYSTEM_ID;
+    uint32_t view_count = 0;
+    std::array<XrViewConfigurationView, 2> view_configs{{
+        {XR_TYPE_VIEW_CONFIGURATION_VIEW},
+        {XR_TYPE_VIEW_CONFIGURATION_VIEW},
+    }};
+    bool session_running = false;
+    XrSessionState session_state = XR_SESSION_STATE_UNKNOWN;
+    uint64_t submitted_frames = 0;
 
     if (!initialize_loader(activity))
         goto cleanup;
 
-    uint32_t extension_count = 0;
     if (!xr_ok(xrEnumerateInstanceExtensionProperties(
                    nullptr, 0, &extension_count, nullptr),
                "xrEnumerateInstanceExtensionProperties(count)"))
@@ -351,7 +362,6 @@ void xr_main(ANativeActivity *activity)
         }
     }
 
-    XrSystemId system_id = XR_NULL_SYSTEM_ID;
     {
         XrSystemGetInfo system_info{XR_TYPE_SYSTEM_GET_INFO};
         system_info.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
@@ -422,11 +432,6 @@ void xr_main(ANativeActivity *activity)
             goto cleanup;
     }
 
-    uint32_t view_count = 0;
-    std::array<XrViewConfigurationView, 2> view_configs{{
-        {XR_TYPE_VIEW_CONFIGURATION_VIEW},
-        {XR_TYPE_VIEW_CONFIGURATION_VIEW},
-    }};
     {
         if (!xr_ok(xrEnumerateViewConfigurationViews(
                        g_instance, system_id,
@@ -474,10 +479,6 @@ void xr_main(ANativeActivity *activity)
     }
 
     glGenFramebuffers(1, &framebuffer);
-
-    bool session_running = false;
-    XrSessionState session_state = XR_SESSION_STATE_UNKNOWN;
-    uint64_t submitted_frames = 0;
 
     while (!g_stop.load(std::memory_order_relaxed)) {
         XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
@@ -599,6 +600,8 @@ void xr_main(ANativeActivity *activity)
     }
 
 cleanup:
+    if (session_running && session != XR_NULL_HANDLE)
+        xrEndSession(session);
     if (framebuffer)
         glDeleteFramebuffers(1, &framebuffer);
     for (auto &eye : eyes)
