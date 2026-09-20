@@ -18,6 +18,7 @@ on:
       - "tools/open_citadel_import.py"
       - "tests/test_open_citadel_import.py"
       - "tools/windows/**"
+      - "tools/quest/**"
       - "open_citadel/**"
       - "vr/**"
       - "android/**"
@@ -77,6 +78,34 @@ jobs:
             -DOPEN_CITADEL_BUILD_OPENXR_PROBE=ON
       - name: Build OpenXR probe
         run: cmake --build "build/windows-openxr-${{ matrix.triplet }}" --config Release --target open-citadel-openxr-probe --parallel
+
+  quest-arm64-shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK/NDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager             "platforms;android-34"             "build-tools;34.0.0"             "ndk;26.3.11579264"             "cmake;3.22.1"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build donor-free Quest ARM64 shell
+        run: gradle -p tools/quest :app:assembleDebug --stacktrace
+      - name: Audit Quest APK
+        run: |
+          set -eux
+          apk=tools/quest/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$apk"
+          unzip -l "$apk" | tee /tmp/open-citadel-quest-apk.txt
+          grep -F "lib/arm64-v8a/libopen-citadel-quest.so" /tmp/open-citadel-quest-apk.txt
+          ! grep -E "lib/(armeabi-v7a|x86|x86_64)/libopen-citadel-quest\.so" /tmp/open-citadel-quest-apk.txt
+          ! grep -Ei "EpicCitadel|libUnrealEngine3|Textures_ATITC|Lighting_ATITC|\.obb|\.xapk" /tmp/open-citadel-quest-apk.txt
 
   atc-decoder:
     runs-on: ubuntu-latest
