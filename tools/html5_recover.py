@@ -10,13 +10,15 @@ import argparse
 import gzip
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 ROOT = "http://www.unrealengine.com/html5/"
 STAMP = "20130504031131"
-UA = "Open-Citadel-HTML5-Recovery/1.0"
+CDN_ROOT = "http://cdn.unrealengine.com/html5-4c0913f/"
+UA = "Open-Citadel-HTML5-Recovery/1.1"
 CORE = (
     "UDKGame_Data.js",
     "UDKGame_Data.data",
@@ -24,23 +26,59 @@ CORE = (
     "UDKGame-Browser-Shipping.js.mem",
 )
 
+# The landing page was archived a few hours after Epic's CDN deployment.
+# These timestamps bracket the known captures for the two loader scripts.
+CDN_STAMPS = {
+    "UDKGame_Data.js": "20130503182945",
+    "UDKGame_Data.data": "20130503182945",
+    "UDKGame-Browser-Shipping.js": "20130503182946",
+    "UDKGame-Browser-Shipping.js.mem": "20130503182946",
+}
 
-def archived(original: str) -> str:
-    return f"https://web.archive.org/web/{STAMP}id_/" + urllib.parse.quote(
+
+def archived(original: str, stamp: str) -> str:
+    return f"https://web.archive.org/web/{stamp}id_/" + urllib.parse.quote(
         original, safe=":/?=&%"
     )
 
 
-def fetch(original: str, timeout: int = 180) -> tuple[bytes, str]:
-    request = urllib.request.Request(archived(original), headers={"User-Agent": UA})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read()
-        final = response.geturl()
+def _decode_archived_body(body: bytes) -> bytes:
     # Raw Wayback replay can preserve an original gzip entity while omitting
-    # the Content-Encoding metadata needed by a local static server.
+    # Content-Encoding metadata needed when the files are served locally.
     if body.startswith(b"\x1f\x8b"):
-        body = gzip.decompress(body)
-    return body, final
+        return gzip.decompress(body)
+    return body
+
+
+def fetch(original: str, timeout: int = 300) -> tuple[bytes, str]:
+    parsed = urllib.parse.urlparse(original)
+    relative = parsed.path.removeprefix("/html5/") if original.startswith(ROOT) else ""
+
+    candidates: list[tuple[str, str]] = [(original, STAMP)]
+    if relative:
+        cdn_original = urllib.parse.urljoin(CDN_ROOT, relative)
+        candidates.insert(0, (cdn_original, CDN_STAMPS.get(relative, "20130503182946")))
+
+    last_error: Exception | None = None
+    for candidate, stamp in candidates:
+        url = archived(candidate, stamp)
+        for attempt in range(3):
+            try:
+                request = urllib.request.Request(url, headers={"User-Agent": UA})
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    body = response.read()
+                    final = response.geturl()
+                return _decode_archived_body(body), final
+            except Exception as exc:
+                last_error = exc
+                print(
+                    f"archive fetch retry {attempt + 1}/3 for {candidate}: {exc}",
+                    file=sys.stderr,
+                )
+                time.sleep(2 * (attempt + 1))
+
+    assert last_error is not None
+    raise last_error
 
 
 def safe_relative(ref: str) -> Path | None:
@@ -75,7 +113,11 @@ def main() -> int:
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
 
-    html_bytes, final = fetch(ROOT)
+    # Keep the page itself on the historical unrealengine.com capture.
+    request = urllib.request.Request(archived(ROOT, STAMP), headers={"User-Agent": UA})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        html_bytes = _decode_archived_body(response.read())
+        final = response.geturl()
     html = html_bytes.decode("utf-8", errors="replace")
     (out / "index.html").write_text(html, encoding="utf-8")
     print(f"recovered index.html ({len(html_bytes):,} bytes) <- {final}")
