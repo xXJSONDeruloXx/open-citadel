@@ -6,6 +6,7 @@
     { "name": "dirent", "platform": "windows" },
     { "name": "pthreads", "platform": "windows" },
     { "name": "sdl2", "platform": "windows" },
+    { "name": "mpg123", "platform": "windows" },
     "zlib"
   ]
 }

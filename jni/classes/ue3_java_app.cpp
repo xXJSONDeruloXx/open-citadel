@@ -8,7 +8,10 @@
 #include <unordered_map>
 
 #include "android/asset_manager.h"
+#include "citadel_audio.h"
 #include "trace.h"
+
+extern "C" int open_citadel_file_descriptor_get(jobject object);
 
 namespace {
 
@@ -40,15 +43,9 @@ static jstring cb_get_app_command_line(JNIEnv *, jobject)
     if (override_line && *override_line)
         return jstr(override_line);
 
-    /*
-     * The donor's assets/UE3CommandLine.txt is:
-     *   EpicCitadel.udk -installed -Exec=UnrealFrontend_TmpExec.txt
-     *
-     * Start without OpenSL so graphics/filesystem bring-up cannot be blocked by
-     * Android audio. Set OPEN_CITADEL_COMMAND_LINE to opt into audio or test
-     * another UE3 switch set without rebuilding.
-     */
-    return jstr("EpicCitadel.udk -installed -Exec=UnrealFrontend_TmpExec.txt -nosound");
+    /* Match the donor's assets/UE3CommandLine.txt. Native Windows audio is
+     * provided by the SDL-backed Java song/sound callbacks below. */
+    return jstr("EpicCitadel.udk -installed -Exec=UnrealFrontend_TmpExec.txt");
 }
 
 static jobject cb_get_asset_manager(JNIEnv *, jobject)
@@ -119,9 +116,9 @@ static jboolean cb_is_video_playing(JNIEnv *, jobject)
     return JNI_FALSE;
 }
 
-static jint cb_load_sound_file(JNIEnv *, jobject, jstring)
+static jint cb_load_sound_file(JNIEnv *, jobject, jstring name)
 {
-    return -1;
+    return open_citadel::audio::load_sound(str_value(name));
 }
 
 static void cb_set_fixed_size_scale(JNIEnv *, jobject, jfloat) {}
@@ -166,20 +163,43 @@ static void cb_start_video(JNIEnv *env, jobject activity, jobject,
 
 static void cb_video_text(JNIEnv *, jobject, jstring) {}
 
-static void cb_play_song(JNIEnv *, jobject, jobject, jlong, jlong, jstring) {}
-
-static void cb_stop_song(JNIEnv *, jobject) {}
-
-static jint cb_play_sound(JNIEnv *, jobject, jint, jboolean)
+static void cb_play_song(JNIEnv *, jobject, jobject file_descriptor,
+                         jlong offset, jlong length, jstring name)
 {
-    return -1;
+    open_citadel::audio::play_song(
+        open_citadel_file_descriptor_get(file_descriptor), offset, length,
+        str_value(name));
 }
 
-static void cb_sound_id(JNIEnv *, jobject, jint) {}
+static void cb_stop_song(JNIEnv *, jobject)
+{
+    open_citadel::audio::stop_song();
+}
 
-static void cb_set_volume(JNIEnv *, jobject, jint, jfloat) {}
+static jint cb_play_sound(JNIEnv *, jobject, jint sound_id, jboolean loop)
+{
+    return open_citadel::audio::play_sound(sound_id, loop != JNI_FALSE);
+}
 
-static void cb_update_song(JNIEnv *, jobject, jfloat) {}
+static void cb_stop_sound(JNIEnv *, jobject, jint stream_id)
+{
+    open_citadel::audio::stop_sound(stream_id);
+}
+
+static void cb_unload_sound(JNIEnv *, jobject, jint sound_id)
+{
+    open_citadel::audio::unload_sound(sound_id);
+}
+
+static void cb_set_volume(JNIEnv *, jobject, jint id, jfloat volume)
+{
+    open_citadel::audio::set_volume(id, volume);
+}
+
+static void cb_update_song(JNIEnv *, jobject, jfloat value)
+{
+    open_citadel::audio::update_song(value);
+}
 
 static void cb_apsalar_event(JNIEnv *, jobject, jstring) {}
 
@@ -335,11 +355,11 @@ static const ManagedMethod UE3JavaMethods[] = {
         "(Ljava/io/FileDescriptor;JJZ)V"),
     ManagedMethod::Register<&cb_stop_song>(
         UE3JavaApp::clazz, "JavaCallback_StopSong", "()V"),
-    ManagedMethod::Register<&cb_sound_id>(
+    ManagedMethod::Register<&cb_stop_sound>(
         UE3JavaApp::clazz, "JavaCallback_StopSound", "(I)V"),
     ManagedMethod::Register<&cb_noop>(
         UE3JavaApp::clazz, "JavaCallback_StopVideo", "()V"),
-    ManagedMethod::Register<&cb_sound_id>(
+    ManagedMethod::Register<&cb_unload_sound>(
         UE3JavaApp::clazz, "JavaCallback_UnloadSoundID", "(I)V"),
     ManagedMethod::Register<&cb_update_song>(
         UE3JavaApp::clazz, "JavaCallback_UpdateSongPlayer", "(F)V"),

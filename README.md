@@ -7,10 +7,11 @@ Windows application; Linux and other native hosts remain secondary targets.
 It loads the original Android x86 game library directly on Windows instead of
 running Android or an emulator. The Windows build currently starts UE3, reads
 the donor assets, compiles the game's shaders, and renders the Epic Citadel
-scene. Mouse clicks and drags are translated to the original touch controls;
-audio, validated keyboard/gamepad controls, settings, and packaging are still
-in progress. Keyboard event translation and host shortcuts are implemented,
-but native key delivery and useful in-game bindings have not yet been verified.
+scene. Mouse clicks and drags are translated to the original touch controls,
+Windows SDL audio handles the Java MP3-song/WAV-sound callbacks, and display
+and mouse-look settings persist. Live keyboard/gamepad behavior, OpenSL ES
+effects, and packaging still need work. Keyboard event translation and host
+shortcuts are implemented, but native key delivery has not yet been verified.
 The project began from the compatibility substrate developed in
 `i-port-katamari`, but Open Citadel is now a standalone project and is not
 limited to PortMaster.
@@ -26,12 +27,13 @@ NVIDIA GeForce RTX 4090 through ANGLE. The bring-up has verified:
 - GLES through ANGLE, with 292 shaders and programs compiled/linked
 - ATITC fallback using the texture caches shipped in the donor
 - visible 3D scene rendering; mouse click/drag reaches the game's touch UI
-- seven Win32 ABI, input, settings, and guest-width tests
+- native SDL audio device started the donor's `town_render` MP3 callback
+- MP3/WAV decoding and playback tests, plus seven Win32 ABI/input/settings tests
 
-This is a working bring-up, not a finished port. The game still starts without
-sound; the new WASD-to-virtual-stick path and gamepad behavior still need live
-verification, and user-facing settings and a distributable installer need
-further work.
+This is a working bring-up, not a finished port. The Java audio callback path
+now plays donor music and supports WAV sound callbacks, but OpenSL ES is not
+implemented and live keyboard/gamepad behavior still needs verification. A
+rebindable controls UI and distributable installer also remain future work.
 
 See [OPEN_CITADEL.md](OPEN_CITADEL.md) for detailed donor-format notes,
 architecture, reverse-engineering findings, and the milestone tracker.
@@ -39,8 +41,8 @@ architecture, reverse-engineering findings, and the milestone tracker.
 ## Native Windows build
 
 Use a vcpkg installation (set `VCPKG_ROOT` if it is not already configured),
-then configure the 32-bit Windows host. The root `vcpkg.json` supplies the
-SDL2, ANGLE, pthreads, dirent, and zlib dependencies:
+then configure the 32-bit Windows host. The root `vcpkg.json` supplies SDL2,
+ANGLE, mpg123, pthreads, dirent, and zlib:
 
 ```powershell
 cmake -S tools/windows -B build/windows-app-win32 `
@@ -102,6 +104,10 @@ sends Back to the game. WASD movement is wired through the guest joystick
 callback but still needs live end-to-end verification. Rebindable controls and
 gamepad behavior remain future work. VSync is on by default and can be changed
 with F2 or `OPEN_CITADEL_VSYNC=0`.
+
+Windows audio uses SDL output with mpg123 for MP3 music and SDL decoding for
+WAV effects. `LOADER_TRACE=1` prints audio-device and callback diagnostics.
+The UE3 OpenSL ES path is a separate, unfinished compatibility item.
 
 ## Donor policy
 

@@ -139,8 +139,10 @@ JavaCallback_StopVideo()V
 JavaCallback_VideoAddTextOverlay(Ljava/lang/String;)V
 ```
 
-Audio and preferences add more callbacks and can be implemented in later
-bring-up stages. Analytics callbacks are safe candidates for no-op behavior.
+Windows implements the Java audio callbacks with SDL output: MP3/WAV assets can
+be decoded, songs are read from bounded file-descriptor ranges, and sound
+IDs support play/stop/unload/volume. Preferences are persisted by the native
+host. Analytics callbacks remain safe candidates for no-op behavior.
 
 Important native callbacks exported by the engine include:
 
@@ -209,9 +211,12 @@ saved values.
 The Windows host maps W/A/S/D to a virtual left-stick axis, releases held
 movement on focus loss, and keeps mouse click-to-walk and drag-to-look input.
 Mouse sensitivity and vertical inversion can be configured at launch. These
-new keyboard paths still need live end-to-end confirmation; gamepad behavior,
-rebindable/persisted settings, audio playback, packaging, and a clean-machine/CI
-run remain open. Linux and other native hosts are follow-on targets.
+new keyboard paths still need live end-to-end confirmation. SDL opens a native
+44.1 kHz stereo device; the donor's `town_render` MP3 and a real donor WAV have
+both decoded in tests, and a no-`-nosound` game run reached the song callback.
+OpenSL ES is not implemented, so engine-side effects may still be silent.
+Gamepad behavior, rebindable controls, packaging, and a clean-machine/CI run
+remain open. Linux and other native hosts are follow-on targets.
 
 The validation sequence is:
 
@@ -226,10 +231,11 @@ The validation sequence is:
 9. user-facing quality-of-life settings and packaging
 
 The Windows loader memory backend and ELF32 ABI parser have dedicated Win32
-tests, and the GLES resolver has a 32-bit cdecl-to-stdcall regression test. The
-native application reaches a rendered scene; the remaining gates are the
-interactive keyboard/gamepad paths, audio, settings, packaging, and automated
-Windows validation. The existing Linux x86 CI build remains a useful secondary
+tests, the GLES resolver has a 32-bit cdecl-to-stdcall regression test, and the
+SDL mixer has a dummy-device WAV/stream lifecycle test. The native application
+reaches a rendered scene; the remaining gates are interactive keyboard/gamepad
+paths, OpenSL ES effects, settings polish, packaging, and automated Windows
+validation. The existing Linux x86 CI build remains a useful secondary
 platform check, not the current deliverable.
 
 ## Milestones
@@ -249,6 +255,7 @@ platform check, not the current deliverable.
 - [x] launch-time window resolution and borderless fullscreen
 - [x] mouse click/drag translated to the game's touch controls
 - [x] Android input key/axis constants checked against ABI values
+- [x] SDL audio output and Java MP3/WAV callback mixer
 - [ ] generic game profile separated from Katamari-specific host code
 - [ ] manual end-to-end keyboard delivery
 - [ ] native gamepad behavior and rebindable input settings

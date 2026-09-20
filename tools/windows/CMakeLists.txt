@@ -77,6 +77,7 @@ if(OPEN_CITADEL_BUILD_APP)
 
     find_package(SDL2 CONFIG REQUIRED)
     find_package(unofficial-angle CONFIG REQUIRED)
+    find_package(mpg123 CONFIG REQUIRED)
     find_package(ZLIB REQUIRED)
     find_package(PThreads4W CONFIG REQUIRED)
     find_path(DIRENT_INCLUDE_DIR NAMES dirent.h REQUIRED)
@@ -102,6 +103,7 @@ if(OPEN_CITADEL_BUILD_APP)
         ../../jni/jni.cpp
         ../../jni/classes/android_input_constants.cpp
         ../../jni/classes/bytebuffer.cpp
+        ../../jni/classes/citadel_audio.cpp
         ../../jni/classes/java_io_FileDescriptor.cpp
         ../../jni/classes/lang_ClassLoader.cpp
         ../../jni/classes/os_Build.cpp
@@ -150,6 +152,7 @@ if(OPEN_CITADEL_BUILD_APP)
         $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
         unofficial::angle::libEGL
         unofficial::angle::libGLESv2
+        MPG123::libmpg123
         ZLIB::ZLIB
         PThreads4W::PThreads4W
         ws2_32
@@ -159,6 +162,7 @@ if(OPEN_CITADEL_BUILD_APP)
             SDL2::SDL2
             unofficial::angle::libEGL
             unofficial::angle::libGLESv2
+            MPG123::libmpg123
             ZLIB::ZLIB
             PThreads4W::PThreads4W)
         if(TARGET ${runtime_target})
@@ -170,4 +174,36 @@ if(OPEN_CITADEL_BUILD_APP)
             )
         endif()
     endforeach()
+
+    add_executable(open_citadel_audio_test
+        audio_test.cpp
+        ../../jni/classes/citadel_audio.cpp
+        ../../src/trace.cpp
+    )
+    target_include_directories(open_citadel_audio_test PRIVATE
+        ../../jni/classes
+        ../../src
+    )
+    target_compile_features(open_citadel_audio_test PRIVATE cxx_std_20)
+    target_compile_definitions(open_citadel_audio_test PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+        SDL_MAIN_HANDLED
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+    target_link_libraries(open_citadel_audio_test PRIVATE
+        $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
+        MPG123::libmpg123
+    )
+    foreach(runtime_target IN ITEMS SDL2::SDL2 MPG123::libmpg123)
+        if(TARGET ${runtime_target})
+            add_custom_command(TARGET open_citadel_audio_test POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:${runtime_target}>"
+                    "$<TARGET_FILE_DIR:open_citadel_audio_test>"
+                VERBATIM
+            )
+        endif()
+    endforeach()
+    add_test(NAME audio-mixer COMMAND open_citadel_audio_test)
 endif()
