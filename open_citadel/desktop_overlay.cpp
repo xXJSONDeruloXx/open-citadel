@@ -131,6 +131,23 @@ void draw_game_tab(const Snapshot &snapshot)
     ImGui::TextDisabled("Benchmark mode also disables VSync for that run.");
     ImGui::Spacing();
 
+    static const char *resolution_scale_options[] = {
+        "50%", "75%", "100%",
+    };
+    int resolution_scale_option =
+        open_citadel::resolution_scale_option(g_ui_settings.resolution_scale);
+    if (ImGui::Combo("3D render resolution (next launch)",
+                     &resolution_scale_option, resolution_scale_options,
+                     IM_ARRAYSIZE(resolution_scale_options))) {
+        Command command;
+        command.type = CommandType::SetResolutionScale;
+        command.value =
+            open_citadel::resolution_scale_from_option(resolution_scale_option);
+        push_command(command);
+    }
+    ImGui::TextDisabled("Window size and aspect ratio are independent.");
+    ImGui::Spacing();
+
     if (ImGui::SliderFloat("Mouse sensitivity",
                            &g_ui_settings.mouse_sensitivity,
                            0.1f, 4.0f, "%.1f"))

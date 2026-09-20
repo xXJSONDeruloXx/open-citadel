@@ -26,6 +26,8 @@ std::string g_patch_obb;
 std::atomic<int> g_shutdown{0};
 std::atomic<long> g_frames{0};
 std::atomic<bool> g_uncap_fps{false};
+std::atomic<float> g_resolution_scale{1.0f};
+std::atomic<bool> g_resolution_scale_reported{false};
 UE3JavaApp g_activity;
 std::mutex g_prefs_lock;
 std::unordered_map<std::string, std::string> g_prefs;
@@ -96,8 +98,11 @@ static jint cb_get_performance_level(JNIEnv *, jobject)
 
 static jfloat cb_get_resolution_scale(JNIEnv *, jobject)
 {
-    const char *value = std::getenv("OPEN_CITADEL_RESOLUTION_SCALE");
-    return value ? static_cast<jfloat>(std::atof(value)) : -1.0f;
+    const float scale = g_resolution_scale.load(std::memory_order_acquire);
+    if (!g_resolution_scale_reported.exchange(true, std::memory_order_acq_rel))
+        fprintf(stderr, "OpenCitadel: UE3 resolution-scale callback=%.2f\n",
+                scale);
+    return scale;
 }
 
 static jint cb_get_sdk_version(JNIEnv *, jobject)
@@ -527,6 +532,11 @@ extern "C" void open_citadel_java_clear_shutdown(void)
 extern "C" void open_citadel_java_set_uncap_fps(int enabled)
 {
     g_uncap_fps.store(enabled != 0, std::memory_order_release);
+}
+
+extern "C" void open_citadel_java_set_resolution_scale(float scale)
+{
+    g_resolution_scale.store(scale, std::memory_order_release);
 }
 
 extern "C" long open_citadel_java_frames_presented(void)

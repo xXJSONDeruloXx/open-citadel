@@ -89,11 +89,12 @@ first launch, the host creates
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`. F2 opens an in-game Dear
 ImGui settings overlay. Its Game tab shows live FPS/frame time and controls
 mouse-look sensitivity, vertical inversion, VSync, the next-launch FPS cap,
-and uncapped benchmark mode. The Controls tab can rebind Forward, Backward,
-Left, and Right; Escape cancels a rebind and Reset restores WASD. The Display
-tab accepts custom width/height values and selects fullscreen for the next
-launch. Shift+F2 opens the legacy native dialog as a fallback. All options are
-saved in the settings file.
+uncapped benchmark mode, and the game's 3D render scale (50%, 75%, or 100%;
+100% by default). The Controls tab can rebind Forward, Backward, Left, and
+Right; Escape cancels a rebind and Reset restores WASD. The Display tab accepts
+custom width/height values and selects fullscreen for the next launch. Shift+F2
+opens the legacy native dialog as a fallback. All options are saved in the
+settings file.
 `OPEN_CITADEL_CONFIG` can select a different settings file.
 
 On Windows, the Game tab offers **Disable the game's 60 FPS cap next launch**.
@@ -111,6 +112,9 @@ the saved VSync preference is preserved.
 
 The settings file stores the startup window size and fullscreen preference;
 the Display tab and environment variables accept arbitrary sizes/aspect ratios.
+Render scale applies on the next launch and is independent of window size and
+aspect ratio. `OPEN_CITADEL_RESOLUTION_SCALE` can override it with `0.50`,
+`0.75`, or `1.00`.
 On Windows the window can also be resized live (minimum 320x240). Each resize
 updates UE3 with the GL drawable dimensions and scales mouse/touch coordinates
 to match; the windowed size is saved after resizing settles. A live resize from

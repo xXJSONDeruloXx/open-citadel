@@ -24,6 +24,7 @@ int main()
         "uncap_fps=true\n"
         "uncapped_benchmark=true\n"
         "mouse_sensitivity=9.0\n"
+        "resolution_scale=0.75\n"
         "invert_mouse_y=true\n"
         "move_forward=Up\n"
         "move_backward=Down\n"
@@ -40,6 +41,7 @@ int main()
     CHECK(settings.uncap_fps);
     CHECK(settings.uncapped_benchmark);
     CHECK(settings.mouse_sensitivity == 4.0f);
+    CHECK(settings.resolution_scale == 0.75f);
     CHECK(settings.invert_mouse_y);
     CHECK(settings.move_forward == "Up");
     CHECK(settings.move_backward == "Down");
@@ -58,6 +60,7 @@ int main()
     CHECK(round_trip.uncap_fps == settings.uncap_fps);
     CHECK(round_trip.uncapped_benchmark == settings.uncapped_benchmark);
     CHECK(round_trip.mouse_sensitivity == settings.mouse_sensitivity);
+    CHECK(round_trip.resolution_scale == settings.resolution_scale);
     CHECK(round_trip.invert_mouse_y == settings.invert_mouse_y);
     CHECK(round_trip.move_forward == settings.move_forward);
     CHECK(round_trip.move_backward == settings.move_backward);
@@ -76,6 +79,21 @@ int main()
     CHECK(key_name == "#");
     CHECK(!open_citadel::parse_settings_key_name(
         std::string(33, 'x'), &key_name));
+    float resolution_scale = 0.0f;
+    CHECK(open_citadel::parse_settings_resolution_scale("0.50",
+                                                         &resolution_scale));
+    CHECK(resolution_scale == 0.5f);
+    CHECK(open_citadel::parse_settings_resolution_scale("0.60",
+                                                         &resolution_scale));
+    CHECK(resolution_scale == 0.75f);
+    CHECK(open_citadel::parse_settings_resolution_scale("0.80",
+                                                         &resolution_scale));
+    CHECK(resolution_scale == 1.0f);
+    CHECK(!open_citadel::parse_settings_resolution_scale("not-a-number",
+                                                          &resolution_scale));
+    CHECK(open_citadel::resolution_scale_option(0.5f) == 0);
+    CHECK(open_citadel::resolution_scale_option(0.75f) == 1);
+    CHECK(open_citadel::resolution_scale_option(1.0f) == 2);
     open_citadel::UserSettings symbolic_key;
     symbolic_key.move_forward = "=";
     symbolic_key.move_backward = "#";

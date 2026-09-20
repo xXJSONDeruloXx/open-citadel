@@ -21,11 +21,14 @@ your own Epic Citadel 1.07 XAPK.
 Click the ground to walk and drag with either mouse button to look around.
 W/A/S/D movement is confirmed working. F1 shows controls, and F2 opens the
 in-game settings overlay. Its Game tab displays live FPS/frame time and
-controls mouse, VSync, and frame-cap settings. Use Controls to rebind movement
-keys; Escape cancels a rebind and **Reset movement keys to WASD** restores
-defaults. Display accepts custom width/height and fullscreen settings for the
-next launch. The window can also be resized live (320x240 minimum); UE3 receives
-the new drawable size, mouse/touch coordinates are rescaled, and the windowed
+controls mouse, VSync, frame-cap/benchmark settings, and the game's 3D render
+scale (50%, 75%, or 100%; 100% by default, applied next launch). Set
+`OPEN_CITADEL_RESOLUTION_SCALE` to `0.50`, `0.75`, or `1.00` to override it. Use
+Controls to rebind movement keys; Escape cancels a rebind and **Reset movement
+keys to WASD** restores defaults. Display accepts custom width/height and
+fullscreen settings for the next launch. The window can also be resized live
+(320x240 minimum); UE3 receives the new drawable size, mouse/touch coordinates
+are rescaled, and the windowed
 size is saved after resizing settles. F11/Alt+Enter request borderless
 fullscreen; that mode switch still needs visual validation. Shift+F2 opens the
 legacy native settings dialog. Settings are saved under

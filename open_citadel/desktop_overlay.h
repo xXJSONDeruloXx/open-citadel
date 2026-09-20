@@ -16,6 +16,7 @@ enum class CommandType {
     SetVsync,
     SetUncapFps,
     SetUncappedBenchmark,
+    SetResolutionScale,
     SetFullscreen,
     SaveResolution,
     BeginRebind,

@@ -943,6 +943,7 @@ int main(int argc, char **argv)
                 "OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.\n"
                 "OPEN_CITADEL_MOUSE_SENSITIVITY scales drag-look; "
                 "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look; "
+                "OPEN_CITADEL_RESOLUTION_SCALE selects 0.50, 0.75, or 1.00; "
                 "OPEN_CITADEL_VSYNC=0 disables VSync; "
                 "OPEN_CITADEL_UNCAP_FPS=1 disables the Windows 60 FPS cap; "
                 "OPEN_CITADEL_UNCAPPED_BENCHMARK=1 disables both the game "
@@ -1029,6 +1030,9 @@ int main(int argc, char **argv)
 #endif
     settings.mouse_sensitivity = env_float(
         "OPEN_CITADEL_MOUSE_SENSITIVITY", settings.mouse_sensitivity, 0.1f, 4.0f);
+    settings.resolution_scale = open_citadel::normalize_resolution_scale(
+        env_float("OPEN_CITADEL_RESOLUTION_SCALE", settings.resolution_scale,
+                  0.5f, 1.0f));
     settings.invert_mouse_y = env_bool(
         "OPEN_CITADEL_INVERT_MOUSE_Y", settings.invert_mouse_y);
 #if defined(_WIN32)
@@ -1045,6 +1049,9 @@ int main(int argc, char **argv)
     const bool active_uncap_fps = false;
     bool active_vsync = settings.vsync;
 #endif
+    open_citadel_java_set_resolution_scale(settings.resolution_scale);
+    fprintf(stderr, "OpenCitadel: game render scale=%d%%\n",
+            (int)std::lround(settings.resolution_scale * 100.0f));
 
     open_citadel::MovementKeyBindings movement_bindings;
     if (!movement_bindings.configure(
@@ -1368,6 +1375,11 @@ int main(int argc, char **argv)
                 settings.uncapped_benchmark = command.enabled;
                 general_settings_changed = true;
                 break;
+            case CommandType::SetResolutionScale:
+                settings.resolution_scale =
+                    open_citadel::normalize_resolution_scale(command.value);
+                general_settings_changed = true;
+                break;
             case CommandType::SetFullscreen:
                 settings.fullscreen = command.enabled;
                 display_settings_changed = true;
@@ -1420,6 +1432,7 @@ int main(int argc, char **argv)
             saved_settings.uncapped_benchmark =
                 settings.uncapped_benchmark;
             saved_settings.mouse_sensitivity = settings.mouse_sensitivity;
+            saved_settings.resolution_scale = settings.resolution_scale;
             saved_settings.invert_mouse_y = settings.invert_mouse_y;
             ++overlay_revision;
             if (!save_user_settings(settings_path, saved_settings))

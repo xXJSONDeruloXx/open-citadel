@@ -208,19 +208,23 @@ pixels. The windowed size is saved after a 500 ms resize debounce. A live
 F11/Alt+Enter now request borderless fullscreen; that transition remains to be
 visually verified. A Windows settings file is created under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width, height, fullscreen,
-VSync, the FPS cap, benchmark mode, mouse sensitivity, vertical inversion, and
-movement keys are persistent; `OPEN_CITADEL_CONFIG` can select another file.
+VSync, the FPS cap, benchmark mode, render scale, mouse sensitivity, vertical
+inversion, and movement keys are persistent; `OPEN_CITADEL_CONFIG` can select
+another file.
 F2 opens the in-game Dear ImGui settings overlay. Its Game tab shows live
 frame-rate/frame-time readings and controls mouse-look, live VSync, and
-next-launch FPS/benchmark modes. Controls can rebind movement keys or reset to
-WASD. Display accepts arbitrary window width/height and a fullscreen preference
-for the next launch. Benchmark mode starts UE3 with `-benchmark` and forces
-VSync off without changing the saved VSync preference. Shift+F2 retains the
-native options dialogs as a fallback.
-Display-mode, FPS-cap, and benchmark-mode edits take effect after restarting,
-and matching environment variables override the saved values. Set
+next-launch FPS/benchmark/render-scale modes. The donor app uses 50%, 75%, and
+100% render-scale tiers; the desktop defaults to 100%. Render scale is
+independent of window size and aspect ratio. Controls can rebind movement keys
+or reset to WASD. Display accepts arbitrary window width/height and a fullscreen
+preference for the next launch. Benchmark mode starts UE3 with `-benchmark` and
+forces VSync off without changing the saved VSync preference. Shift+F2 retains
+the native options dialogs as a fallback.
+Display-mode, FPS-cap, benchmark-mode, and render-scale edits take effect after
+restarting, and matching environment variables override the saved values. Set
 `OPEN_CITADEL_UNCAPPED_BENCHMARK=1` to select benchmark mode from the command
-line. VSync defaults on;
+line, or `OPEN_CITADEL_RESOLUTION_SCALE` to `0.50`, `0.75`, or `1.00` to
+override internal rendering scale. VSync defaults on;
 `OPEN_CITADEL_VSYNC=0` disables it. The game defaults
 to its 60 FPS cap; set `OPEN_CITADEL_UNCAP_FPS=1` or use the F2 option to
 disable it. With VSync off, the 1280x720 Windows build measured about 59.6 FPS
@@ -290,8 +294,8 @@ build remains a useful secondary platform check, not the current deliverable.
 - [ ] movement-key rebind verification
 - [ ] native gamepad behavior
 - [ ] OpenSL ES compatibility
-- [x] persistent Windows settings, custom display sizes, and live performance overlay
-- [ ] live visual/input validation of the in-game ImGui overlay
+- [x] persistent Windows settings, custom display sizes, render scale, and live performance overlay
+- [ ] live visual/input validation of the in-game ImGui overlay (F2 produced no visible panel during automation)
 - [x] optional uncapped benchmark mode with VSync disabled for measurement
 - [x] live Windows viewport resizing with guest size updates and input scaling
 - [ ] live fullscreen switching visual verification

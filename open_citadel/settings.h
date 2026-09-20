@@ -21,6 +21,7 @@ struct UserSettings {
     bool uncap_fps = false;
     bool uncapped_benchmark = false;
     float mouse_sensitivity = 1.0f;
+    float resolution_scale = 1.0f;
     bool invert_mouse_y = false;
     std::string move_forward = "w";
     std::string move_backward = "s";
@@ -66,6 +67,43 @@ inline bool parse_settings_float(std::string_view value, float minimum,
         return false;
     *result = std::clamp(parsed, minimum, maximum);
     return true;
+}
+
+inline float normalize_resolution_scale(float scale) noexcept
+{
+    if (!std::isfinite(scale))
+        return 1.0f;
+    scale = std::clamp(scale, 0.5f, 1.0f);
+    if (scale < 0.6f)
+        return 0.5f;
+    if (scale < 0.8f)
+        return 0.75f;
+    return 1.0f;
+}
+
+inline bool parse_settings_resolution_scale(std::string_view value,
+                                            float *result)
+{
+    float parsed = 1.0f;
+    if (!result || !parse_settings_float(value, 0.5f, 1.0f, &parsed))
+        return false;
+    *result = normalize_resolution_scale(parsed);
+    return true;
+}
+
+inline int resolution_scale_option(float scale) noexcept
+{
+    const float normalized = normalize_resolution_scale(scale);
+    return normalized < 0.6f ? 0 : normalized < 0.8f ? 1 : 2;
+}
+
+inline float resolution_scale_from_option(int option) noexcept
+{
+    switch (option) {
+    case 0: return 0.5f;
+    case 1: return 0.75f;
+    default: return 1.0f;
+    }
 }
 
 inline bool settings_text_equals(std::string_view value,
@@ -149,6 +187,9 @@ inline void read_user_settings(std::istream &input, UserSettings *settings)
         } else if (key == "mouse_sensitivity") {
             parse_settings_float(value, 0.1f, 4.0f,
                                 &settings->mouse_sensitivity);
+        } else if (key == "resolution_scale") {
+            parse_settings_resolution_scale(value,
+                                            &settings->resolution_scale);
         } else if (key == "invert_mouse_y") {
             parse_settings_boolean(value, &settings->invert_mouse_y);
         } else if (key == "move_forward") {
@@ -179,6 +220,7 @@ inline void write_user_settings(std::ostream &output,
            << (settings.uncapped_benchmark ? "true" : "false") << '\n'
            << "mouse_sensitivity=" << std::fixed << std::setprecision(2)
            << settings.mouse_sensitivity << '\n'
+           << "resolution_scale=" << settings.resolution_scale << '\n'
            << "invert_mouse_y=" << (settings.invert_mouse_y ? "true" : "false")
            << '\n'
            << "move_forward=" << settings.move_forward << '\n'

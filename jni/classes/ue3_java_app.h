@@ -38,6 +38,7 @@ void open_citadel_java_configure(SDL_Window *window, SDL_GLContext context,
                                  const char *game_dir, const char *main_obb,
                                  const char *patch_obb);
 void open_citadel_java_set_uncap_fps(int enabled);
+void open_citadel_java_set_resolution_scale(float scale);
 
 jobject open_citadel_java_activity(void);
 int open_citadel_java_shutdown_requested(void);
