@@ -1,10 +1,13 @@
 #ifndef __SO_UTIL_H__
 #define __SO_UTIL_H__
 
-#include <sys/types.h>
 #include <stdint.h>
 #include <stddef.h>
+#if defined(_WIN32)
+#include "elf_win32.h"
+#else
 #include "elf.h"
+#endif
 
 // RELR/ANDROID_RELA, etc
 #define	DT_RELRSZ	35	/* Total size of ElfNN_Relr relocations. */

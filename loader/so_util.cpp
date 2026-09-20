@@ -97,16 +97,20 @@ uintptr_t so_alloc_arena(so_module *so, uintptr_t range, uintptr_t dst, size_t s
   return (uintptr_t)NULL;
 }
 
+#if defined(__GNUC__)
 #pragma GCC push_options
 #pragma GCC optimize ("O0")
+#endif
 void gdb_push(const char *name, uintptr_t load_addr)
 { 
   // This is used by the debug.gdb script
   // Optimizations are forced OFF so this isn't stripped away
 }
+#if defined(__GNUC__)
 #pragma GCC pop_options
+#endif
 
-static fs::path get_arch_path()
+static const char *get_arch_path()
 {
 #if defined(__aarch64__)
     return "arm64-v8a";
@@ -293,7 +297,8 @@ static so_module *so_load(void *so_data, uintptr_t load_addr, size_t sz) {
     }
 
     if (fs::exists(path)) {
-      gdb_push(path.c_str(), (uintptr_t)load_addr);
+      const std::string path_string = path.string();
+      gdb_push(path_string.c_str(), (uintptr_t)load_addr);
     } else {
       fatal_error("Failed to write so: '%s'.\n", filename.str().c_str());
     }
@@ -379,7 +384,7 @@ so_module *so_load_module(const char *filename, struct zip *apk, void *vm) {
       size_t image_size = 0;
 
       if (so_alt_searchpath && *so_alt_searchpath) {
-          snprintf(filepath, PATH_MAX, "%s/%s/%s", so_alt_searchpath, get_arch_path().c_str(), current.c_str());
+          snprintf(filepath, PATH_MAX, "%s/%s/%s", so_alt_searchpath, get_arch_path(), current.c_str());
           if (io_load_file(filepath, &buffer, &image_size))
               goto load_module_success;
 
@@ -392,7 +397,7 @@ so_module *so_load_module(const char *filename, struct zip *apk, void *vm) {
               goto load_module_success;
       }
 
-      snprintf(filepath, PATH_MAX, "lib/%s/%s", get_arch_path().c_str(), current.c_str());
+      snprintf(filepath, PATH_MAX, "lib/%s/%s", get_arch_path(), current.c_str());
       if (io_load_file(filepath, &buffer, &image_size))
           goto load_module_success;
 
@@ -682,7 +687,8 @@ int helper_foreach_droid_rel(so_module *mod, uint8_t *rel, size_t bytes, rela_fu
       addend += consume_sleb128(cursor, last);
 
       // This is the unpacked relocation - pass it to the generic function
-      reloc = (Elf_Rela){(Elf_Addr)addr, R_ARM_RELATIVE, addend};
+      reloc = Elf_Rela{(Elf_Addr)addr, R_ARM_RELATIVE,
+                       static_cast<decltype(reloc.r_addend)>(addend)};
       if (functor(mod, &reloc))
         return 1;
       pairs--;
@@ -694,7 +700,7 @@ int helper_foreach_droid_rel(so_module *mod, uint8_t *rel, size_t bytes, rela_fu
     addr = consume_sleb128(cursor, last);
 
     // This is the unpacked relocation - pass it to the generic function
-    reloc = (Elf_Rela){(Elf_Addr)addr, R_ARM_RELATIVE, 0};
+    reloc = Elf_Rela{(Elf_Addr)addr, R_ARM_RELATIVE, 0};
     if (functor(mod, &reloc))
       return 1;
 
@@ -705,7 +711,7 @@ int helper_foreach_droid_rel(so_module *mod, uint8_t *rel, size_t bytes, rela_fu
         addr += delta;
 
         // This is the unpacked relocation - pass it to the generic function
-        reloc = (Elf_Rela){(Elf_Addr)addr, R_ARM_RELATIVE, 0};
+        reloc = Elf_Rela{(Elf_Addr)addr, R_ARM_RELATIVE, 0};
         if (functor(mod, &reloc))
           return 1;
         count--;
@@ -753,7 +759,8 @@ int helper_foreach_droid_rel(so_module *mod, uint8_t *rel, size_t bytes, rela_fu
       }
 
       // This is the unpacked relocation - pass it to the generic function
-      reloc = (Elf_Rela){(Elf_Addr)offset, (Elf_Addr)info, addend};
+      reloc = Elf_Rela{(Elf_Addr)offset, (Elf_Addr)info,
+                       static_cast<decltype(reloc.r_addend)>(addend)};
       if (functor(mod, &reloc))
         return 1;
 

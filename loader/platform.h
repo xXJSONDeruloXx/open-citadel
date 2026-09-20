@@ -3,6 +3,12 @@
 
 #include <stdint.h>
 
+// MSVC uses the Microsoft architecture names; the loader and guest ABI code
+// use GCC-compatible names to select the 32-bit x86 relocation path.
+#if defined(_M_IX86) && !defined(__i386__)
+    #define __i386__ 1
+#endif
+
 // Elf attributes
 #if defined(__x86_64) || defined(__aarch64__)
     #define Elf_Addr Elf64_Addr
