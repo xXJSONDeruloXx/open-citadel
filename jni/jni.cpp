@@ -428,7 +428,7 @@ ABI_ATTR static jfieldID iface_GetStaticFieldID(JNIEnv *env, jclass clazz, const
 {
     Class *clz = (Class*)clazz;
     FieldId *field = (FieldId*)GetFieldIdGeneric("GetStaticFieldID", env, clz, name, sig);
-    if (field && (field->is_static == true))
+    if (field && field->is_static != 0)
         return (jfieldID)field;
     
     if (clz)

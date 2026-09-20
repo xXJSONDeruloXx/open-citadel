@@ -17,6 +17,9 @@ extern DynLibFunction symtable_io[];
 extern DynLibFunction symtable_unwind[];
 extern DynLibFunction symtable_bionic[];
 extern DynLibFunction symtable_off[];
+#if defined(_WIN32)
+extern DynLibFunction symtable_stdio_win32[];
+#endif
 #if defined(__arm__)
 extern DynLibFunction symtable_setjmp[];
 #endif
@@ -66,6 +69,9 @@ DynLibFunction *so_dynamic_libraries[] = {
     symtable_open_citadel_gles2_probe,
     symtable_gles2,
     symtable_libm,
+#if defined(_WIN32)
+    symtable_stdio_win32,
+#endif
     symtable_libc,
     nullptr,
 };

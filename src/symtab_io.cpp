@@ -54,7 +54,12 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <fcntl.h>
+#if defined(_WIN32)
+#include <direct.h>
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -65,16 +70,30 @@
 #include "trace.h"
 #include "fix_path.h"
 
+#if defined(_WIN32)
+using bionic_mode_t = int;
+#else
+using bionic_mode_t = mode_t;
+#endif
+
 /* argv[1]. Static storage rather than a pointer into argv because the thunks
  * outlive nothing in particular but the value has to be readable from any
  * thread the engine starts. */
 static char g_game_dir[PATH_MAX] = "/game";
+static char g_game_dir_argument[PATH_MAX] = "/game";
 static std::atomic<long> g_assets_opened(0);
 
 void io_set_game_dir(const char *dir)
 {
-    if (dir && *dir)
+    if (dir && *dir) {
+        snprintf(g_game_dir_argument, sizeof(g_game_dir_argument), "%s", dir);
+#if defined(_WIN32)
+        if (!_fullpath(g_game_dir, dir, sizeof(g_game_dir)))
+            snprintf(g_game_dir, sizeof(g_game_dir), "%s", dir);
+#else
         snprintf(g_game_dir, sizeof(g_game_dir), "%s", dir);
+#endif
+    }
 }
 
 const char *io_game_dir(void) { return g_game_dir; }
@@ -100,6 +119,24 @@ const char *fix_path(const char *orig, char *buf, size_t bufsz)
     char work[PATH_MAX];
     snprintf(work, sizeof(work), "%s", orig);
     bool changed = false;
+
+    /* The game sometimes changes cwd to its data root but keeps passing paths
+     * that include the original argv[1] prefix. Resolve that spelling against
+     * the canonical root so it remains valid from either cwd. */
+    const size_t argument_len = strlen(g_game_dir_argument);
+#if defined(_WIN32)
+    const bool game_root_prefix =
+        _strnicmp(work, g_game_dir_argument, argument_len) == 0;
+#else
+    const bool game_root_prefix =
+        strncmp(work, g_game_dir_argument, argument_len) == 0;
+#endif
+    if (argument_len && game_root_prefix &&
+        (work[argument_len] == '\0' || work[argument_len] == '/' ||
+         work[argument_len] == '\\')) {
+        snprintf(buf, bufsz, "%s%s", g_game_dir, work + argument_len);
+        return buf;
+    }
 
     char *android = strstr(work, kAndroid);
     if (android) {
@@ -142,14 +179,15 @@ const char *fix_path(const char *orig, char *buf, size_t bufsz)
  * next reader learns which names the engine actually asks for. Everything past
  * the cap is still counted in the summary line.
  */
-static void trace_path(const char *what, const char *orig, const char *fixed, int rc)
+static void trace_path(const char *what, const char *orig, const char *fixed,
+                       int rc, int error)
 {
     static int shown = 0;
     if (fixed == orig || shown >= 24)
         return;
     shown++;
     trace("io: %s '%s' -> '%s' (%s)", what, orig, fixed,
-          rc >= 0 ? "ok" : "ENOENT");
+          rc >= 0 ? "ok" : strerror(error));
 }
 
 /*
@@ -176,13 +214,38 @@ extern "C" {
  * unconditionally is safe on AAPCS - r2 is caller-saved scratch either way -
  * and avoids a va_list in a function the allocator can reach.
  */
-int bionic_open(const char *path, int flags, mode_t mode)
+int bionic_open(const char *path, int flags, bionic_mode_t mode)
 {
     char buf[PATH_MAX];
     const char *fixed = fix_path(path, buf, sizeof(buf));
+#if defined(_WIN32)
+    /* Android's open(2) flag values are part of the guest ABI and differ from
+     * the UCRT's _O_* values. Translate the subset UE3 uses, and always open
+     * assets as binary files with inheritance disabled. */
+    constexpr int kBionicOCreate = 0x40;
+    constexpr int kBionicOExclusive = 0x80;
+    constexpr int kBionicOTruncate = 0x200;
+    constexpr int kBionicOAppend = 0x400;
+    int host_flags = _O_BINARY | _O_NOINHERIT;
+    switch (flags & 3) {
+    case 0: host_flags |= _O_RDONLY; break;
+    case 1: host_flags |= _O_WRONLY; break;
+    case 2: host_flags |= _O_RDWR; break;
+    default: errno = EINVAL; return -1;
+    }
+    if (flags & kBionicOCreate) host_flags |= _O_CREAT;
+    if (flags & kBionicOExclusive) host_flags |= _O_EXCL;
+    if (flags & kBionicOTruncate) host_flags |= _O_TRUNC;
+    if (flags & kBionicOAppend) host_flags |= _O_APPEND;
+    int fd = _open(fixed, host_flags, (int)mode);
+    const int saved_errno = errno;
+#else
     int fd = open(fixed, flags, mode);
+    const int saved_errno = errno;
+#endif
     count_asset_open(fixed, fd >= 0);
-    trace_path("open", path, fixed, fd);
+    trace_path("open", path, fixed, fd, saved_errno);
+    errno = saved_errno;
     return fd;
 }
 
@@ -200,8 +263,10 @@ void *bionic_fopen(const char *path, const char *mode)
     char buf[PATH_MAX];
     const char *fixed = fix_path(path, buf, sizeof(buf));
     void *f = fopen_impl(fixed, mode);
+    const int saved_errno = errno;
     count_asset_open(fixed, f != NULL);
-    trace_path("fopen", path, fixed, f ? 0 : -1);
+    trace_path("fopen", path, fixed, f ? 0 : -1, saved_errno);
+    errno = saved_errno;
     return f;
 }
 
@@ -215,14 +280,21 @@ void *bionic_opendir(const char *path)
     char buf[PATH_MAX];
     const char *fixed = fix_path(path, buf, sizeof(buf));
     DIR *d = opendir(fixed);
-    trace_path("opendir", path, fixed, d ? 0 : -1);
+    const int saved_errno = errno;
+    trace_path("opendir", path, fixed, d ? 0 : -1, saved_errno);
+    errno = saved_errno;
     return d;
 }
 
-int bionic_mkdir(const char *path, mode_t mode)
+int bionic_mkdir(const char *path, bionic_mode_t mode)
 {
     char buf[PATH_MAX];
+#if defined(_WIN32)
+    (void)mode;
+    return _mkdir(fix_path(path, buf, sizeof(buf)));
+#else
     return mkdir(fix_path(path, buf, sizeof(buf)), mode);
+#endif
 }
 
 int bionic_remove(const char *path)
@@ -234,7 +306,11 @@ int bionic_remove(const char *path)
 int bionic_unlink(const char *path)
 {
     char buf[PATH_MAX];
+#if defined(_WIN32)
+    return _unlink(fix_path(path, buf, sizeof(buf)));
+#else
     return unlink(fix_path(path, buf, sizeof(buf)));
+#endif
 }
 
 int bionic_rename(const char *from, const char *to)

@@ -1,6 +1,9 @@
-#if defined(__i386__)
+#if defined(__i386__) || defined(_M_IX86)
 #include <stdint.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "platform.h"
 #include "so_util.h"
@@ -25,6 +28,11 @@ void hook_address(so_module *mod, uintptr_t addr, uintptr_t dst)
     const int32_t rel = (int32_t)(dst - (addr + sizeof(patch)));
     memcpy(&patch[1], &rel, sizeof(rel));
     memcpy((void *)addr, patch, sizeof(patch));
+#if defined(_WIN32)
+    FlushInstructionCache(GetCurrentProcess(), (const void *)addr,
+                          sizeof(patch));
+#else
     __builtin___clear_cache((char *)addr, (char *)addr + sizeof(patch));
+#endif
 }
 #endif

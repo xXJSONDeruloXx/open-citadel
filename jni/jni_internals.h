@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <atomic>
 #include <stdarg.h>
 #include <tuple>
 #include <functional>
@@ -80,7 +81,7 @@ template <typename T>
 static inline T va_next(va_list &va)
 {
     T v = (T)va_arg(va, va_promoted_t<T>);
-    __asm__ __volatile__("" ::: "memory");
+    std::atomic_signal_fence(std::memory_order_seq_cst);
     return v;
 }
 

@@ -7,9 +7,12 @@
  * already-populated GLAD GLES2 pointers.
  */
 #include <atomic>
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <string>
 #include <vector>
 
 #include "atc_decompress.h"
@@ -36,6 +39,60 @@ static std::atomic<long> g_draws{0};
 static std::atomic<long> g_textures{0};
 static std::atomic<long> g_atc_decoded{0};
 static std::atomic<long> g_compressed_passthrough{0};
+
+#if defined(_WIN32)
+static std::string windows_guest_extensions(const char *host_extensions)
+{
+    std::string guest_extensions;
+    bool has_atc = false;
+    const std::string host(host_extensions ? host_extensions : "");
+    std::size_t position = 0;
+    while (position < host.size()) {
+        const std::size_t end = host.find(' ', position);
+        const std::string extension = host.substr(
+            position, end == std::string::npos ? std::string::npos :
+                                                   end - position);
+        std::string lower = extension;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+            [](unsigned char value) { return (char)std::tolower(value); });
+        const bool dxt = lower.find("s3tc") != std::string::npos ||
+                         lower.find("dxt") != std::string::npos;
+        has_atc = has_atc ||
+            lower.find("compressed_atc") != std::string::npos ||
+            lower.find("texture_compression_atitc") != std::string::npos;
+        if (!dxt) {
+            if (!guest_extensions.empty())
+                guest_extensions.push_back(' ');
+            guest_extensions += extension;
+        }
+        if (end == std::string::npos)
+            break;
+        position = end + 1;
+    }
+
+    /* UE3 selects an Android texture-cache suffix from this list. The game
+     * ships ATITC TFCs, not the DXT cache chosen by a desktop PC driver. Our
+     * compressed-upload thunk decodes ATC to RGBA, so expose that software
+     * capability while leaving the real host context untouched. */
+    if (!has_atc) {
+        if (!guest_extensions.empty())
+            guest_extensions.push_back(' ');
+        guest_extensions += "GL_AMD_compressed_ATC_texture";
+    }
+    return guest_extensions;
+}
+
+extern "C" const GLubyte *open_citadel_glGetString(GLenum name)
+{
+    const GLubyte *host = glad_glGetString(name);
+    if (name != GL_EXTENSIONS || !host)
+        return host;
+
+    static const std::string guest = windows_guest_extensions(
+        reinterpret_cast<const char *>(host));
+    return reinterpret_cast<const GLubyte *>(guest.c_str());
+}
+#endif
 
 static void report_shader_log(GLuint object, bool shader)
 {
@@ -212,6 +269,9 @@ extern "C" int open_citadel_gl_programs_ok(void) { return g_programs_ok.load(); 
 extern "C" int open_citadel_gl_programs_failed(void) { return g_programs_failed.load(); }
 
 DynLibFunction symtable_open_citadel_gles2_probe[] = {
+#if defined(_WIN32)
+    THUNK_SPECIFIC("glGetString", open_citadel_glGetString),
+#endif
     THUNK_SPECIFIC("glCompileShader", open_citadel_glCompileShader),
     THUNK_SPECIFIC("glLinkProgram", open_citadel_glLinkProgram),
     THUNK_SPECIFIC("glDrawArrays", open_citadel_glDrawArrays),

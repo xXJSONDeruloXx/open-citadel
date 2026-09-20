@@ -178,6 +178,30 @@ noise while bringing up the native Windows host. Windows itself must run a
 match the guest ABI. The current toolchain is Visual Studio 2022 with SDL2 and
 ANGLE; WSL is not part of the target runtime.
 
+### Current Windows status
+
+The native Win32 x86 application now builds with Visual Studio 2022 and the
+dependencies in the root `vcpkg.json`. It runs without Android or WSL and, with
+the imported Epic Citadel 1.07 data, completes UE3 startup and renders the
+original scene and UI through ANGLE on the development PC. The default data
+search, explicit directory argument, and `OPEN_CITADEL_GAME_DIR` override are
+available.
+
+The Windows compatibility layer now provides the ELF32 loader, JNI/activity
+surface, Android asset/OBB reads, Bionic/POSIX shims, 32-bit guest `wchar_t`
+handling, GLES calling-convention bridge, and packaged ATITC decoding. At
+1280x720, the live scene has rendered with the original cooked assets and
+shaders. Mouse clicks and held drags reach the game's touch UI and camera.
+VSync defaults on, with `OPEN_CITADEL_VSYNC=0` as an override.
+
+The five local CTest checks currently cover host memory, ELF32 ABI, Android
+input constants, guest `wchar_t`, and the Win32 GLES stdcall bridge. They pass
+on the development machine. Keyboard event translation and host shortcuts are
+present in code, but physical key delivery was not confirmed during bring-up;
+WASD/mouse-look bindings, gamepad behavior, and rebindable settings are not
+verified. Audio playback, a user-facing settings layer, packaging, and a clean
+machine/CI run remain open. Linux and other native hosts are follow-on targets.
+
 The validation sequence is:
 
 1. ELF/bionic relocation
@@ -185,16 +209,17 @@ The validation sequence is:
 3. Android asset access
 4. UE3 filesystem startup
 5. GLES2 context and shaders
-6. audio compatibility
-7. native keyboard, mouse and controller input
-8. lifecycle and quality-of-life settings
+6. stable frame pacing and window lifecycle
+7. keyboard/gamepad actions and rebinding
+8. audio compatibility
+9. user-facing quality-of-life settings and packaging
 
 The Windows loader memory backend and ELF32 ABI parser have dedicated Win32
-tests, and the GLES resolver now has a 32-bit cdecl-to-stdcall regression test.
-The native application target is still in bring-up: Windows replacements for
-the POSIX runtime layer, a complete link, and an actual game launch are the next
-gates. The existing Linux x86 CI build remains useful as a secondary platform
-check, not as the Windows deliverable.
+tests, and the GLES resolver has a 32-bit cdecl-to-stdcall regression test. The
+native application reaches a rendered scene; the remaining gates are the
+interactive keyboard/gamepad paths, audio, settings, packaging, and automated
+Windows validation. The existing Linux x86 CI build remains a useful secondary
+platform check, not the current deliverable.
 
 ## Milestones
 
@@ -203,20 +228,21 @@ check, not as the Windows deliverable.
 - [x] exact UE3JavaApp JNI signature inventory
 - [x] Win32 memory backend and ELF32 ABI smoke tests
 - [x] Win32 GLES cdecl-to-stdcall thunk regression test
+- [x] native Win32 x86 application build and dependency manifest
+- [x] Windows replacements for the POSIX runtime layer
+- [x] Android asset/OBB access and JNI startup
+- [x] all exercised Epic Citadel ELF imports resolve
+- [x] UE3 opens `EpicCitadel.xxx` and reaches rendered frames
+- [x] first GLES2 shader compile/draw and ATITC fallback
+- [x] default game-data discovery and explicit path overrides
+- [x] mouse click/drag translated to the game's touch controls
+- [x] Android input key/axis constants checked against ABI values
 - [ ] generic game profile separated from Katamari-specific host code
-- [ ] native Windows application build and complete symbol resolution
-- [ ] libandroid/AAsset compatibility
-- [ ] UE3JavaApp fake class
-- [ ] all Epic Citadel ELF imports resolve
-- [ ] JNI_OnLoad succeeds and native methods register
-- [ ] x86 UE3 initialization under CI
-- [ ] UE3 opens `EpicCitadel.xxx`
-- [ ] first GLES2 shader compile
-- [ ] first draw / first frame
-- [ ] ATITC fallback verified
+- [ ] manual end-to-end keyboard delivery; WASD/mouse-look controls
+- [ ] native gamepad behavior and rebindable input settings
 - [ ] OpenSL ES compatibility
-- [ ] controller callbacks
-- [ ] WASD and mouse-look controls with rebindable settings
-- [ ] window, resolution, sensitivity and input quality-of-life settings
+- [ ] window/resolution/sensitivity and persisted quality-of-life settings
+- [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
+- [ ] Windows CI launch/smoke test with donor data supplied privately
 - [ ] ARMHF CI build
 - [ ] Linux and other native host backends

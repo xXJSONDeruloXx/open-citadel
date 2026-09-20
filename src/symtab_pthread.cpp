@@ -36,12 +36,18 @@
  * so they win the lookup.
  */
 #include <errno.h>
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <new>
 #include <pthread.h>
 #include <sched.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <thread>
+#include <unordered_map>
 
 #include <time.h>
 #include "time_scale.h"
@@ -54,6 +60,119 @@
  * extern "C" block below or the two would not be the same symbol. */
 struct so_module;
 extern so_module *katamari_module(void);
+
+#if defined(_WIN32)
+namespace {
+
+struct GuestThreadRecord {
+    pthread_t host_thread;
+    bool detached;
+};
+
+struct GuestThreadStart {
+    uint32_t guest_thread;
+    void *(*entry)(void *);
+    void *argument;
+    bool detached;
+    std::mutex registration_lock;
+    std::condition_variable registered_condition;
+    bool registered = false;
+};
+
+std::mutex g_guest_thread_lock;
+std::unordered_map<uint32_t, GuestThreadRecord> g_guest_threads;
+std::atomic<uint32_t> g_next_guest_thread{1};
+thread_local uint32_t g_current_guest_thread = 0;
+
+std::mutex g_once_lock;
+struct GuestOnceState {
+    bool running = false;
+    bool complete = false;
+    std::thread::id owner;
+    std::condition_variable changed;
+};
+std::unordered_map<uint32_t *, std::shared_ptr<GuestOnceState>> g_once_states;
+
+uint32_t allocate_guest_thread_id()
+{
+    for (;;) {
+        const uint32_t id = g_next_guest_thread.fetch_add(
+            1, std::memory_order_relaxed);
+        if (id != 0)
+            return id;
+    }
+}
+
+void remember_guest_thread(uint32_t id, pthread_t host_thread, bool detached)
+{
+    std::lock_guard<std::mutex> lock(g_guest_thread_lock);
+    g_guest_threads[id] = {host_thread, detached};
+}
+
+bool find_guest_thread(uint32_t id, pthread_t *host_thread,
+                       bool *detached = nullptr)
+{
+    std::lock_guard<std::mutex> lock(g_guest_thread_lock);
+    const auto found = g_guest_threads.find(id);
+    if (found == g_guest_threads.end())
+        return false;
+    if (host_thread)
+        *host_thread = found->second.host_thread;
+    if (detached)
+        *detached = found->second.detached;
+    return true;
+}
+
+void forget_guest_thread(uint32_t id)
+{
+    std::lock_guard<std::mutex> lock(g_guest_thread_lock);
+    g_guest_threads.erase(id);
+}
+
+uint32_t guest_thread_id_for_current()
+{
+    if (g_current_guest_thread)
+        return g_current_guest_thread;
+
+    const pthread_t host_thread = pthread_self();
+    std::lock_guard<std::mutex> lock(g_guest_thread_lock);
+    for (const auto &entry : g_guest_threads) {
+        if (pthread_equal(entry.second.host_thread, host_thread)) {
+            g_current_guest_thread = entry.first;
+            return entry.first;
+        }
+    }
+
+    const uint32_t id = allocate_guest_thread_id();
+    g_guest_threads.emplace(id, GuestThreadRecord{host_thread, false});
+    g_current_guest_thread = id;
+    return id;
+}
+
+void *guest_thread_start(void *opaque)
+{
+    std::unique_ptr<GuestThreadStart> start(
+        static_cast<GuestThreadStart *>(opaque));
+    g_current_guest_thread = start->guest_thread;
+    {
+        std::unique_lock<std::mutex> lock(start->registration_lock);
+        start->registered_condition.wait(lock, [&start] {
+            return start->registered;
+        });
+    }
+    void *(*entry)(void *) = start->entry;
+    void *argument = start->argument;
+    const bool detached = start->detached;
+    start.reset();
+
+    void *result = entry(argument);
+    if (detached)
+        forget_guest_thread(g_current_guest_thread);
+    return result;
+}
+
+} // namespace
+#endif
 
 extern "C" {
 
@@ -179,6 +298,12 @@ static void report_thread(int rc, pthread_t *thread)
     if (rc != 0 || !thread)
         return;
 
+#if defined(_WIN32)
+    /* PThreads4W exposes the native thread handle instead of GNU's
+     * pthread_getattr_np/pthread_attr_getstack extensions. */
+    trace("  ^ pthread_t=%p win_thread=%p", thread->p,
+          pthread_getw32threadhandle_np(*thread));
+#else
     void  *stack = NULL;
     size_t size  = 0;
     pthread_attr_t a;
@@ -189,9 +314,99 @@ static void report_thread(int rc, pthread_t *thread)
 
     trace("  ^ pthread_t=%p stack=%p..%p",
           (void *)*thread, stack, (char *)stack + size);
+#endif
 }
 
 
+#if defined(_WIN32)
+int bionic_pthread_create(uint32_t *guest_thread,
+                          const struct bionic_pthread_attr *attr,
+                          void *(*entry)(void *), void *arg)
+{
+    {
+        so_module *mod = katamari_module();
+        if (mod && (uintptr_t)entry >= mod->text_base &&
+            (uintptr_t)entry <  mod->text_base + mod->text_size)
+            trace("pthread_create: entry at +0x%08x, arg=%p",
+                  (unsigned)((uintptr_t)entry - mod->text_base), arg);
+        else
+            trace("pthread_create: entry at %p (outside the module)", (void *)entry);
+    }
+    if (attr)
+        trace("pthread_create: guest attrs stack=%p size=%u guard=%u flags=0x%08x",
+              attr->stack_base, attr->stack_size, attr->guard_size, attr->flags);
+
+    if (!guest_thread || !entry)
+        return EINVAL;
+
+    const bool detached = attr &&
+        (attr->flags & BIONIC_PTHREAD_ATTR_FLAG_DETACHED) != 0;
+    GuestThreadStart *start = new (std::nothrow) GuestThreadStart{};
+    if (!start)
+        return ENOMEM;
+    start->guest_thread = allocate_guest_thread_id();
+    start->entry = entry;
+    start->argument = arg;
+    start->detached = detached;
+
+    pthread_attr_t host;
+    int rc = pthread_attr_init(&host);
+    if (rc != 0) {
+        delete start;
+        return rc;
+    }
+
+    if (detached) {
+        rc = pthread_attr_setdetachstate(&host, PTHREAD_CREATE_DETACHED);
+        if (rc != 0) {
+            pthread_attr_destroy(&host);
+            delete start;
+            return rc;
+        }
+    }
+
+    /* The Bionic stack address belongs to its caller and may be only reserved,
+     * not committed as a Windows stack. PThreads4W cannot supply Windows' stack
+     * guard growth for that region, so use an OS-managed stack and carry across
+     * only the requested size. Bionic's 1 MiB default is also the minimum here
+     * because UE3's initialization path exceeds PThreads4W's small default. */
+    size_t requested_stack = attr && attr->stack_size >= 16384
+        ? attr->stack_size : kBionicDefaultStack;
+    if (requested_stack < kBionicDefaultStack)
+        requested_stack = kBionicDefaultStack;
+    size_t host_default = 0;
+    if (pthread_attr_getstacksize(&host, &host_default) != 0)
+        host_default = 0;
+    if (requested_stack > host_default)
+        rc = pthread_attr_setstacksize(&host, requested_stack);
+    if (rc != 0) {
+        pthread_attr_destroy(&host);
+        delete start;
+        return rc;
+    }
+    trace("pthread_create: host stack=%u guest request=%u custom=%p",
+          (unsigned)(requested_stack > host_default ? requested_stack : host_default),
+          attr ? attr->stack_size : 0, attr ? attr->stack_base : nullptr);
+
+    pthread_t host_thread{};
+    rc = pthread_create(&host_thread, &host, guest_thread_start, start);
+    pthread_attr_destroy(&host);
+    if (rc != 0) {
+        delete start;
+        return rc;
+    }
+
+    remember_guest_thread(start->guest_thread, host_thread, detached);
+    *guest_thread = start->guest_thread;
+    {
+        std::lock_guard<std::mutex> lock(start->registration_lock);
+        start->registered = true;
+    }
+    start->registered_condition.notify_one();
+    report_thread(rc, &host_thread);
+    return rc;
+}
+#else
 int bionic_pthread_create(pthread_t *thread, const struct bionic_pthread_attr *attr,
                           void *(*entry)(void *), void *arg)
 {
@@ -228,6 +443,7 @@ int bionic_pthread_create(pthread_t *thread, const struct bionic_pthread_attr *a
     report_thread(rc, thread);
     return rc;
 }
+#endif
 
 /*
  * Mutexes, because bionic's pthread_mutex_t is one 32-bit word and glibc's is
@@ -324,8 +540,8 @@ static pthread_mutex_t *host_mutex(BIONIC_pthread_mutex_t *m)
      * __atomic_load_n rather than as a plain field so the compiler cannot
      * reload it between the check and the return.
      */
-    pthread_mutex_t *fast = (pthread_mutex_t *)__atomic_load_n(
-        (void **)&m->real_mtx, __ATOMIC_ACQUIRE);
+    pthread_mutex_t *fast = std::atomic_ref<pthread_mutex_t *>(m->real_mtx)
+        .load(std::memory_order_acquire);
     if ((uintptr_t)fast > kBionicInitWordMax)
         return fast;
 
@@ -356,16 +572,23 @@ static pthread_mutex_t *host_mutex(BIONIC_pthread_mutex_t *m)
             pthread_mutexattr_destroy(&attr);
             /* Release: everything written into *host above must be visible to
              * any thread that sees this pointer on the fast path. */
-            __atomic_store_n((void **)&m->real_mtx, host, __ATOMIC_RELEASE);
+            std::atomic_ref<pthread_mutex_t *>(m->real_mtx)
+                .store(host, std::memory_order_release);
         }
     }
 
     pthread_mutex_unlock(&g_mutex_bootstrap);
-    return (pthread_mutex_t *)__atomic_load_n((void **)&m->real_mtx,
-                                              __ATOMIC_ACQUIRE);
+    return std::atomic_ref<pthread_mutex_t *>(m->real_mtx)
+        .load(std::memory_order_acquire);
 }
 
-int bionic_pthread_mutex_init(BIONIC_pthread_mutex_t *m, pthread_mutexattr_t **attr)
+#if defined(_WIN32)
+int bionic_pthread_mutex_init(BIONIC_pthread_mutex_t *m,
+                              const pthread_mutexattr_t *attr)
+#else
+int bionic_pthread_mutex_init(BIONIC_pthread_mutex_t *m,
+                              pthread_mutexattr_t **attr)
+#endif
 {
     if (!m)
         return EINVAL;
@@ -406,7 +629,11 @@ int bionic_pthread_mutex_init(BIONIC_pthread_mutex_t *m, pthread_mutexattr_t **a
     /* The double indirection is gmloader-next's convention, not ours: its
      * pthread_mutexattr_init bridge stores a host attribute object in the
 */
+#if defined(_WIN32)
+    int rc = pthread_mutex_init(host, attr);
+#else
     int rc = pthread_mutex_init(host, attr ? *attr : NULL);
+#endif
     if (rc != 0) {
         free(host);
         return rc;
@@ -477,12 +704,150 @@ int bionic_pthread_mutex_trylock(BIONIC_pthread_mutex_t *m)
  * the next pthread_mutex_init dereferences it. The engine asks for
  * PROCESS_SHARED on one of its two branches.
  */
+#if defined(_WIN32)
+int bionic_pthread_mutexattr_init(pthread_mutexattr_t *attr)
+{
+    if (!attr)
+        return EINVAL;
+    *attr = nullptr;
+    return pthread_mutexattr_init(attr);
+}
+
+int bionic_pthread_mutexattr_settype(pthread_mutexattr_t *attr, int type)
+{
+    if (!attr || !*attr)
+        return EINVAL;
+
+    int host_type;
+    switch (type) {
+    case 0: host_type = PTHREAD_MUTEX_NORMAL; break;
+    case 1: host_type = PTHREAD_MUTEX_RECURSIVE; break;
+    case 2: host_type = PTHREAD_MUTEX_ERRORCHECK; break;
+    default: return EINVAL;
+    }
+    return pthread_mutexattr_settype(attr, host_type);
+}
+
+int bionic_pthread_mutexattr_destroy(pthread_mutexattr_t *attr)
+{
+    if (!attr || !*attr)
+        return EINVAL;
+    return pthread_mutexattr_destroy(attr);
+}
+
+int bionic_pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int pshared)
+{
+    if (!attr || !*attr ||
+        (pshared != PTHREAD_PROCESS_PRIVATE &&
+         pshared != PTHREAD_PROCESS_SHARED))
+        return EINVAL;
+
+    /* This port runs the game in one process; map Bionic's shared request to
+     * a process-local Windows mutex rather than failing an otherwise usable
+     * mutex initialization on hosts without process-shared pthread support. */
+    return pthread_mutexattr_setpshared(attr, PTHREAD_PROCESS_PRIVATE);
+}
+#else
 int bionic_pthread_mutexattr_setpshared(pthread_mutexattr_t **attr_ptr, int pshared)
 {
     if (!attr_ptr || !*attr_ptr)
         return EINVAL;
     return pthread_mutexattr_setpshared(*attr_ptr, pshared);
 }
+#endif
+
+#if defined(_WIN32)
+uint32_t bionic_pthread_self()
+{
+    return guest_thread_id_for_current();
+}
+
+int bionic_pthread_join(uint32_t guest_thread, void **result)
+{
+    pthread_t host_thread{};
+    bool detached = false;
+    if (!guest_thread ||
+        !find_guest_thread(guest_thread, &host_thread, &detached))
+        return ESRCH;
+    if (detached)
+        return EINVAL;
+
+    const int rc = pthread_join(host_thread, result);
+    if (rc == 0)
+        forget_guest_thread(guest_thread);
+    return rc;
+}
+
+int bionic_pthread_detach(uint32_t guest_thread)
+{
+    pthread_t host_thread{};
+    bool detached = false;
+    if (!guest_thread ||
+        !find_guest_thread(guest_thread, &host_thread, &detached))
+        return ESRCH;
+    if (detached)
+        return EINVAL;
+
+    const int rc = pthread_detach(host_thread);
+    if (rc == 0)
+        forget_guest_thread(guest_thread);
+    return rc;
+}
+
+[[noreturn]] void bionic_pthread_exit(void *result)
+{
+    const uint32_t guest_thread = g_current_guest_thread;
+    if (guest_thread) {
+        bool detached = false;
+        if (find_guest_thread(guest_thread, nullptr, &detached) && detached)
+            forget_guest_thread(guest_thread);
+    }
+    pthread_exit(result);
+    abort();
+}
+
+int bionic_pthread_once(volatile uint32_t *once_control,
+                        void (*init_routine)(void))
+{
+    if (!once_control || !init_routine)
+        return EINVAL;
+
+    uint32_t *key = const_cast<uint32_t *>(once_control);
+    std::shared_ptr<GuestOnceState> state;
+    {
+        std::lock_guard<std::mutex> lock(g_once_lock);
+        auto &stored = g_once_states[key];
+        if (!stored)
+            stored = std::make_shared<GuestOnceState>();
+        state = stored;
+    }
+
+    std::unique_lock<std::mutex> lock(g_once_lock);
+    while (state->running) {
+        if (state->owner == std::this_thread::get_id())
+            return EDEADLK;
+        state->changed.wait(lock);
+    }
+    if (state->complete)
+        return 0;
+
+    state->running = true;
+    state->owner = std::this_thread::get_id();
+    *once_control = 1;
+    lock.unlock();
+
+    init_routine();
+
+    lock.lock();
+    state->complete = true;
+    state->running = false;
+    state->owner = std::thread::id{};
+    *once_control = 2;
+    lock.unlock();
+    state->changed.notify_all();
+    return 0;
+}
+#endif
 
 /*
  * setstack and setschedparam write through glibc's pthread_attr layout into an
@@ -552,6 +917,107 @@ int bionic_pthread_attr_setschedparam(struct bionic_pthread_attr *attr,
  *
  * EA::Thread::Condition::Wait is the only call site.
  */
+#if defined(_WIN32)
+static bool guest_condition_initialized(pthread_cond_t *condition)
+{
+    const pthread_cond_t handle =
+        std::atomic_ref<pthread_cond_t>(*condition)
+            .load(std::memory_order_acquire);
+    const uintptr_t value = (uintptr_t)handle;
+    return value > kBionicInitWordMax &&
+           value != (uintptr_t)PTHREAD_COND_INITIALIZER;
+}
+
+static int ensure_guest_condition(pthread_cond_t *condition)
+{
+    if (!condition)
+        return EINVAL;
+    if (guest_condition_initialized(condition))
+        return 0;
+
+    const int lock_rc = pthread_mutex_lock(&g_mutex_bootstrap);
+    if (lock_rc != 0)
+        return lock_rc;
+
+    int rc = 0;
+    if (!guest_condition_initialized(condition)) {
+        std::atomic_ref<pthread_cond_t>(*condition)
+            .store(nullptr, std::memory_order_release);
+        rc = pthread_cond_init(condition, nullptr);
+    }
+    pthread_mutex_unlock(&g_mutex_bootstrap);
+    return rc;
+}
+
+int bionic_pthread_cond_init(pthread_cond_t *condition,
+                             const pthread_condattr_t * /* attributes */)
+{
+    if (!condition)
+        return EINVAL;
+    const int lock_rc = pthread_mutex_lock(&g_mutex_bootstrap);
+    if (lock_rc != 0)
+        return lock_rc;
+    std::atomic_ref<pthread_cond_t>(*condition)
+        .store(nullptr, std::memory_order_release);
+    const int rc = pthread_cond_init(condition, nullptr);
+    pthread_mutex_unlock(&g_mutex_bootstrap);
+    return rc;
+}
+
+int bionic_pthread_cond_destroy(pthread_cond_t *condition)
+{
+    if (!condition)
+        return EINVAL;
+    if (!guest_condition_initialized(condition))
+        return 0;
+    const int rc = pthread_cond_destroy(condition);
+    if (rc == 0)
+        std::atomic_ref<pthread_cond_t>(*condition)
+            .store(nullptr, std::memory_order_release);
+    return rc;
+}
+
+int bionic_pthread_cond_signal(pthread_cond_t *condition)
+{
+    const int rc = ensure_guest_condition(condition);
+    return rc == 0 ? pthread_cond_signal(condition) : rc;
+}
+
+int bionic_pthread_cond_broadcast(pthread_cond_t *condition)
+{
+    const int rc = ensure_guest_condition(condition);
+    return rc == 0 ? pthread_cond_broadcast(condition) : rc;
+}
+
+int bionic_pthread_cond_wait(pthread_cond_t *condition,
+                             BIONIC_pthread_mutex_t *mutex)
+{
+    const int rc = ensure_guest_condition(condition);
+    if (rc != 0)
+        return rc;
+    pthread_mutex_t *host_mutex_handle = host_mutex(mutex);
+    return host_mutex_handle
+        ? pthread_cond_wait(condition, host_mutex_handle) : EINVAL;
+}
+
+int bionic_pthread_cond_timedwait(pthread_cond_t *condition,
+                                  BIONIC_pthread_mutex_t *mutex,
+                                  const struct bionic_timespec *absolute)
+{
+    const int rc = ensure_guest_condition(condition);
+    if (rc != 0)
+        return rc;
+    pthread_mutex_t *host_mutex_handle = host_mutex(mutex);
+    if (!host_mutex_handle || !absolute)
+        return EINVAL;
+
+    struct timespec deadline;
+    deadline.tv_sec = (time_t)absolute->tv_sec;
+    deadline.tv_nsec = (long)absolute->tv_nsec;
+    port_time_scale_reverse(&deadline);
+    return pthread_cond_timedwait(condition, host_mutex_handle, &deadline);
+}
+#else
 int bionic_pthread_cond_timedwait(pthread_cond_t **cnd, BIONIC_pthread_mutex_t *m,
                                   const struct bionic_timespec *abs)
 {
@@ -584,7 +1050,8 @@ int bionic_pthread_cond_timedwait(pthread_cond_t **cnd, BIONIC_pthread_mutex_t *
                 return ENOMEM;
             }
             pthread_cond_init(c, NULL);
-            __atomic_store_n(cnd, c, __ATOMIC_RELEASE);
+            std::atomic_ref<pthread_cond_t *>(*cnd)
+                .store(c, std::memory_order_release);
         }
         pthread_mutex_unlock(&g_mutex_bootstrap);
     }
@@ -600,6 +1067,7 @@ int bionic_pthread_cond_timedwait(pthread_cond_t **cnd, BIONIC_pthread_mutex_t *
     port_time_scale_reverse(&ts);
     return pthread_cond_timedwait(*cnd, host, &ts);
 }
+#endif
 
 DynLibFunction symtable_pthread[] = {
     THUNK_SPECIFIC("pthread_attr_init",           bionic_pthread_attr_init),
@@ -609,14 +1077,39 @@ DynLibFunction symtable_pthread[] = {
     THUNK_SPECIFIC("pthread_attr_setstacksize",   bionic_pthread_attr_setstacksize),
     THUNK_SPECIFIC("pthread_attr_getstacksize",   bionic_pthread_attr_getstacksize),
     THUNK_SPECIFIC("pthread_attr_setguardsize",   bionic_pthread_attr_setguardsize),
+#if defined(_WIN32)
+    THUNK_SPECIFIC("pthread_self",                bionic_pthread_self),
     THUNK_SPECIFIC("pthread_create",              bionic_pthread_create),
+    THUNK_SPECIFIC("pthread_join",                bionic_pthread_join),
+    THUNK_SPECIFIC("pthread_detach",              bionic_pthread_detach),
+    THUNK_SPECIFIC("pthread_exit",                bionic_pthread_exit),
+    THUNK_SPECIFIC("pthread_once",                bionic_pthread_once),
+    THUNK_DIRECT(pthread_key_create),
+    THUNK_DIRECT(pthread_key_delete),
+    THUNK_DIRECT(pthread_getspecific),
+    THUNK_DIRECT(pthread_setspecific),
+#else
+    THUNK_SPECIFIC("pthread_create",              bionic_pthread_create),
+#endif
 
     THUNK_SPECIFIC("pthread_mutex_init",          bionic_pthread_mutex_init),
     THUNK_SPECIFIC("pthread_mutex_destroy",       bionic_pthread_mutex_destroy),
     THUNK_SPECIFIC("pthread_mutex_lock",          bionic_pthread_mutex_lock),
     THUNK_SPECIFIC("pthread_mutex_unlock",        bionic_pthread_mutex_unlock),
     THUNK_SPECIFIC("pthread_mutex_trylock",       bionic_pthread_mutex_trylock),
+#if defined(_WIN32)
+    THUNK_SPECIFIC("pthread_cond_init",           bionic_pthread_cond_init),
+    THUNK_SPECIFIC("pthread_cond_destroy",        bionic_pthread_cond_destroy),
+    THUNK_SPECIFIC("pthread_cond_wait",           bionic_pthread_cond_wait),
+    THUNK_SPECIFIC("pthread_cond_signal",          bionic_pthread_cond_signal),
+    THUNK_SPECIFIC("pthread_cond_broadcast",       bionic_pthread_cond_broadcast),
+#endif
     THUNK_SPECIFIC("pthread_cond_timedwait",      bionic_pthread_cond_timedwait),
+#if defined(_WIN32)
+    THUNK_SPECIFIC("pthread_mutexattr_init",       bionic_pthread_mutexattr_init),
+    THUNK_SPECIFIC("pthread_mutexattr_destroy",    bionic_pthread_mutexattr_destroy),
+    THUNK_SPECIFIC("pthread_mutexattr_settype",    bionic_pthread_mutexattr_settype),
+#endif
     THUNK_SPECIFIC("pthread_mutexattr_setpshared", bionic_pthread_mutexattr_setpshared),
     THUNK_SPECIFIC("pthread_attr_setstack",       bionic_pthread_attr_setstack),
     THUNK_SPECIFIC("pthread_attr_setschedparam",  bionic_pthread_attr_setschedparam),

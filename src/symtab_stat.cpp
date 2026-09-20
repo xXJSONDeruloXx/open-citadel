@@ -20,7 +20,11 @@
  * purpose: the whole failure mode being fixed is the assumption that these two
  * structures have anything in common.
  */
+#if defined(_WIN32)
 #include <sys/stat.h>
+#else
+#include <sys/stat.h>
+#endif
 #include <sys/types.h>
 #include <stdint.h>
 #include <string.h>
@@ -36,6 +40,9 @@
  * ABI - the kernel's stat64 has those holes and bionic reproduces them - so it
  * is spelled out rather than left to the compiler.
  */
+#if defined(__i386__)
+#pragma pack(push, 4)
+#endif
 struct bionic_stat {
     uint64_t st_dev;
     uint8_t  __pad0[4];
@@ -57,6 +64,9 @@ struct bionic_stat {
     uint32_t st_ctime_nsec;
     uint64_t st_ino;
 };
+#if defined(__i386__)
+#pragma pack(pop)
+#endif
 
 /*
  * Android used the same field list for 32-bit ARM and i386, but the ABI
@@ -80,7 +90,13 @@ static_assert(offsetof(struct bionic_stat, st_size) == 48,
               "armeabi-v7a st_size must be at offset 48");
 #endif
 
-static int convert(const struct stat64 &host, struct bionic_stat *out);
+#if defined(_WIN32)
+using host_stat_t = struct _stat64;
+#else
+using host_stat_t = struct stat64;
+#endif
+
+static int convert(const host_stat_t &host, struct bionic_stat *out);
 
 extern "C" int bionic_fstat(int fd, struct bionic_stat *out)
 {
@@ -89,8 +105,13 @@ extern "C" int bionic_fstat(int fd, struct bionic_stat *out)
 
     /* stat64 explicitly: the host's plain struct stat is the time64 one, and
      * its off_t is only as wide as the build's _FILE_OFFSET_BITS. */
-    struct stat64 host;
+#if defined(_WIN32)
+    host_stat_t host{};
+    int rc = _fstat64(fd, &host);
+#else
+    host_stat_t host{};
     int rc = fstat64(fd, &host);
+#endif
     if (rc != 0)
         return rc;
 
@@ -114,15 +135,20 @@ extern "C" int bionic_stat(const char *path, struct bionic_stat *out)
         return -1;
 
     char buf[PATH_MAX];
-    struct stat64 host;
+#if defined(_WIN32)
+    host_stat_t host{};
+    int rc = _stat64(fix_path(path, buf, sizeof(buf)), &host);
+#else
+    host_stat_t host{};
     int rc = stat64(fix_path(path, buf, sizeof(buf)), &host);
+#endif
     if (rc != 0)
         return rc;
 
     return convert(host, out);
 }
 
-static int convert(const struct stat64 &host, struct bionic_stat *out)
+static int convert(const host_stat_t &host, struct bionic_stat *out)
 {
     memset(out, 0, sizeof(*out));
     out->st_dev       = (uint64_t)host.st_dev;
@@ -133,6 +159,16 @@ static int convert(const struct stat64 &host, struct bionic_stat *out)
     out->st_gid         = (uint32_t)host.st_gid;
     out->st_rdev        = (uint64_t)host.st_rdev;
     out->st_size        = (int64_t)host.st_size;
+#if defined(_WIN32)
+    out->st_blksize     = 4096;
+    out->st_blocks      = ((uint64_t)host.st_size + 511) / 512;
+    out->st_atime_      = (uint32_t)host.st_atime;
+    out->st_mtime_      = (uint32_t)host.st_mtime;
+    out->st_ctime_      = (uint32_t)host.st_ctime;
+    out->st_atime_nsec  = 0;
+    out->st_mtime_nsec  = 0;
+    out->st_ctime_nsec  = 0;
+#else
     out->st_blksize     = (uint32_t)host.st_blksize;
     out->st_blocks      = (uint64_t)host.st_blocks;
     /* Narrowed to 32 bits, like every other time_t in this port: the game was
@@ -143,6 +179,7 @@ static int convert(const struct stat64 &host, struct bionic_stat *out)
     out->st_mtime_nsec  = (uint32_t)host.st_mtim.tv_nsec;
     out->st_ctime_      = (uint32_t)host.st_ctim.tv_sec;
     out->st_ctime_nsec  = (uint32_t)host.st_ctim.tv_nsec;
+#endif
     out->st_ino         = (uint64_t)host.st_ino;
 
     return 0;

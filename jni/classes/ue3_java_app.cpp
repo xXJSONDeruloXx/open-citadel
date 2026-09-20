@@ -66,7 +66,11 @@ static jint cb_get_depth_size(JNIEnv *, jobject)
 
 static jstring cb_get_device_model(JNIEnv *, jobject)
 {
+#if defined(_WIN32)
+    return jstr("Open Citadel Windows");
+#else
     return jstr("OpenCitadel Linux");
+#endif
 }
 
 static jstring cb_get_main_expansion(JNIEnv *, jobject)

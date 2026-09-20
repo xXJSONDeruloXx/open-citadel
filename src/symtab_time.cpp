@@ -52,14 +52,79 @@
  * exactly as it would on a real armeabi-v7a device.
  */
 #include <stdint.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <time.h>
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <sys/time.h>
+#endif
 
 #include "so_util.h"
 #include "thunk_gen.h"
 #include "time_scale.h"
 #include "trace.h"
+
+#if defined(_WIN32)
+#ifndef CLOCK_REALTIME
+#define CLOCK_REALTIME 0
+#define CLOCK_MONOTONIC 1
+#define CLOCK_MONOTONIC_RAW 4
+#define CLOCK_MONOTONIC_COARSE 6
+#define CLOCK_BOOTTIME 7
+#endif
+
+static int win_clock_gettime(int clk_id, struct timespec *value)
+{
+    if (!value) {
+        errno = EFAULT;
+        return -1;
+    }
+
+    if (clk_id == CLOCK_REALTIME) {
+        FILETIME file_time{};
+        GetSystemTimeAsFileTime(&file_time);
+        ULARGE_INTEGER ticks{};
+        ticks.LowPart = file_time.dwLowDateTime;
+        ticks.HighPart = file_time.dwHighDateTime;
+        constexpr uint64_t kUnixEpoch = 116444736000000000ULL;
+        if (ticks.QuadPart < kUnixEpoch) {
+            errno = EINVAL;
+            return -1;
+        }
+        const uint64_t unix_ticks = ticks.QuadPart - kUnixEpoch;
+        value->tv_sec = (time_t)(unix_ticks / 10000000ULL);
+        value->tv_nsec = (long)((unix_ticks % 10000000ULL) * 100ULL);
+        return 0;
+    }
+
+    if (clk_id == CLOCK_MONOTONIC || clk_id == CLOCK_MONOTONIC_RAW ||
+        clk_id == CLOCK_MONOTONIC_COARSE || clk_id == CLOCK_BOOTTIME) {
+        LARGE_INTEGER counter{}, frequency{};
+        if (!QueryPerformanceCounter(&counter) ||
+            !QueryPerformanceFrequency(&frequency)) {
+            errno = EINVAL;
+            return -1;
+        }
+        const uint64_t whole = (uint64_t)counter.QuadPart /
+                               (uint64_t)frequency.QuadPart;
+        const uint64_t remainder = (uint64_t)counter.QuadPart %
+                                   (uint64_t)frequency.QuadPart;
+        const uint64_t nanoseconds = whole * 1000000000ULL +
+            remainder * 1000000000ULL / (uint64_t)frequency.QuadPart;
+        value->tv_sec = (time_t)(nanoseconds / 1000000000ULL);
+        value->tv_nsec = (long)(nanoseconds % 1000000000ULL);
+        return 0;
+    }
+
+    errno = EINVAL;
+    return -1;
+}
+#endif
 
 /*
  * Development-only clock acceleration. The contract, the reasoning and the list
@@ -110,12 +175,20 @@ int64_t port_time_scale_offset_ns(void)
      * needs to be: the render thread and the audio thread do arrive together. */
     static const struct timespec origin = [] {
         struct timespec value = {0, 0};
+#if defined(_WIN32)
+        win_clock_gettime(CLOCK_MONOTONIC, &value);
+#else
         clock_gettime(CLOCK_MONOTONIC, &value);
+#endif
         return value;
     }();
 
     struct timespec now = {0, 0};
+#if defined(_WIN32)
+    win_clock_gettime(CLOCK_MONOTONIC, &now);
+#else
     clock_gettime(CLOCK_MONOTONIC, &now);
+#endif
     const int64_t elapsed = (int64_t)(now.tv_sec - origin.tv_sec) * 1000000000LL
                           + (int64_t)(now.tv_nsec - origin.tv_nsec);
     if (elapsed <= 0)
@@ -195,7 +268,11 @@ struct bionic_timeval {
 int bionic_clock_gettime(int clk_id, struct bionic_timespec *ts)
 {
     struct timespec host;
+#if defined(_WIN32)
+    int rc = win_clock_gettime(clk_id, &host);
+#else
     int rc = clock_gettime(clk_id, &host);
+#endif
     if (rc == 0 && ts) {
         if (clock_measures_elapsed_time(clk_id))
             port_time_scale_forward(&host);
@@ -213,6 +290,20 @@ int bionic_clock_gettime(int clk_id, struct bionic_timespec *ts)
  */
 int bionic_gettimeofday(struct bionic_timeval *tv, struct timezone *tz)
 {
+#if defined(_WIN32)
+    (void)tz;
+    if (!tv)
+        return 0;
+    struct timespec host{};
+    int rc = win_clock_gettime(CLOCK_REALTIME, &host);
+    if (rc == 0) {
+        struct timespec paced = host;
+        port_time_scale_forward(&paced);
+        tv->tv_sec = (int32_t)paced.tv_sec;
+        tv->tv_usec = (int32_t)(paced.tv_nsec / 1000);
+    }
+    return rc;
+#else
     struct timeval host;
     int rc = gettimeofday(tv ? &host : NULL, tz);
     if (rc == 0 && tv) {
@@ -225,11 +316,37 @@ int bionic_gettimeofday(struct bionic_timeval *tv, struct timezone *tz)
         tv->tv_usec = (int32_t)(paced.tv_nsec / 1000);
     }
     return rc;
+#endif
 }
 
 int bionic_nanosleep(const struct bionic_timespec *req, struct bionic_timespec *rem)
 {
     struct timespec host_req, host_rem;
+#if defined(_WIN32)
+    if (!req || req->tv_sec < 0 || req->tv_nsec < 0 ||
+        req->tv_nsec >= 1000000000) {
+        errno = req ? EINVAL : EFAULT;
+        return -1;
+    }
+    host_req.tv_sec = (time_t)req->tv_sec;
+    host_req.tv_nsec = req->tv_nsec;
+    const double scale = port_time_scale();
+    if (scale > 1.0) {
+        const int64_t total = (int64_t)((double)((int64_t)host_req.tv_sec *
+            1000000000LL + host_req.tv_nsec) / scale);
+        host_req.tv_sec = (time_t)(total / 1000000000LL);
+        host_req.tv_nsec = (long)(total % 1000000000LL);
+    }
+    const uint64_t total_ns = (uint64_t)host_req.tv_sec * 1000000000ULL +
+                              (uint64_t)host_req.tv_nsec;
+    const DWORD milliseconds = (DWORD)((total_ns + 999999ULL) / 1000000ULL);
+    Sleep(milliseconds);
+    if (rem) {
+        rem->tv_sec = 0;
+        rem->tv_nsec = 0;
+    }
+    return 0;
+#else
     if (!req)
         return clock_gettime(CLOCK_MONOTONIC, &host_rem); /* propagate EFAULT */
 
@@ -252,6 +369,7 @@ int bionic_nanosleep(const struct bionic_timespec *req, struct bionic_timespec *
         rem->tv_nsec = (int32_t)host_rem.tv_nsec;
     }
     return rc;
+#endif
 }
 
 bionic_time_t bionic_time(bionic_time_t *out)

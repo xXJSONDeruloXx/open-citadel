@@ -1103,7 +1103,11 @@ jint JNI_CreateJavaVM(JavaVM**, JNIEnv**, void*);
 jint JNI_GetCreatedJavaVMs(JavaVM**, jsize, jsize*);
 
 #define JNIIMPORT
+#if defined(_WIN32)
+#define JNIEXPORT
+#else
 #define JNIEXPORT  __attribute__ ((visibility ("default")))
+#endif
 #define JNICALL
 
 /*

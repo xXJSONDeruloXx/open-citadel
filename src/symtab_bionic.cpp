@@ -20,13 +20,22 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <atomic>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 #include "so_util.h"
 #include "thunk_gen.h"
@@ -58,25 +67,29 @@ extern "C" int bionic_atomic_cmpxchg(int old_value, int new_value, volatile int 
     int expected = old_value;
     /* Strong CAS: bionic's is a ldrex/strex loop, so a spurious failure would
      * be a behaviour change the caller cannot see coming. */
-    bool swapped = __atomic_compare_exchange_n(ptr, &expected, new_value,
-                                               /*weak=*/false,
-                                               __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    bool swapped = std::atomic_ref<int>(*const_cast<int *>(ptr))
+        .compare_exchange_strong(expected, new_value,
+                                 std::memory_order_seq_cst,
+                                 std::memory_order_seq_cst);
     return swapped ? 0 : 1;
 }
 
 extern "C" int bionic_atomic_swap(int new_value, volatile int *ptr)
 {
-    return __atomic_exchange_n(ptr, new_value, __ATOMIC_SEQ_CST);
+    return std::atomic_ref<int>(*const_cast<int *>(ptr))
+        .exchange(new_value, std::memory_order_seq_cst);
 }
 
 extern "C" int bionic_atomic_inc(volatile int *ptr)
 {
-    return __atomic_fetch_add(ptr, 1, __ATOMIC_SEQ_CST);
+    return std::atomic_ref<int>(*const_cast<int *>(ptr))
+        .fetch_add(1, std::memory_order_seq_cst);
 }
 
 extern "C" int bionic_atomic_dec(volatile int *ptr)
 {
-    return __atomic_fetch_sub(ptr, 1, __ATOMIC_SEQ_CST);
+    return std::atomic_ref<int>(*const_cast<int *>(ptr))
+        .fetch_sub(1, std::memory_order_seq_cst);
 }
 
 /* ------------------------------------------------------------- C++ runtime
@@ -100,8 +113,67 @@ extern "C" int bionic_atomic_dec(volatile int *ptr)
  * than one thread. Borrowing libstdc++'s means the loader and the game share
  * one guard implementation instead of racing two.
  */
+#if !defined(_WIN32)
 extern "C" int __cxa_guard_acquire(void *guard);
 extern "C" void __cxa_guard_release(void *guard);
+#else
+static SRWLOCK g_guard_lock = SRWLOCK_INIT;
+static CONDITION_VARIABLE g_guard_changed = CONDITION_VARIABLE_INIT;
+
+/* Itanium/Bionic guard words are eight bytes. Bit zero of the first word is
+ * the completed flag; bit one is private to this host and marks an active
+ * initializer. The second word records its owner so recursive initialization
+ * fails instead of hanging the process. */
+extern "C" int __cxa_guard_acquire(void *guard)
+{
+    if (!guard)
+        return 0;
+
+    auto *state_word = static_cast<uint32_t *>(guard);
+    auto *owner_word = reinterpret_cast<uint32_t *>(
+        static_cast<unsigned char *>(guard) + sizeof(uint32_t));
+    std::atomic_ref<uint32_t> state(*state_word);
+    if (state.load(std::memory_order_acquire) & 1)
+        return 0;
+
+    const DWORD self = GetCurrentThreadId();
+    AcquireSRWLockExclusive(&g_guard_lock);
+    for (;;) {
+        const uint32_t value = state.load(std::memory_order_relaxed);
+        if (value & 1) {
+            ReleaseSRWLockExclusive(&g_guard_lock);
+            return 0;
+        }
+        if (!(value & 2)) {
+            *owner_word = self;
+            state.store(value | 2, std::memory_order_release);
+            ReleaseSRWLockExclusive(&g_guard_lock);
+            return 1;
+        }
+        if (*owner_word == self) {
+            ReleaseSRWLockExclusive(&g_guard_lock);
+            abort();
+        }
+        SleepConditionVariableSRW(&g_guard_changed, &g_guard_lock,
+                                  INFINITE, 0);
+    }
+}
+
+extern "C" void __cxa_guard_release(void *guard)
+{
+    if (!guard)
+        return;
+    auto *state_word = static_cast<uint32_t *>(guard);
+    auto *owner_word = reinterpret_cast<uint32_t *>(
+        static_cast<unsigned char *>(guard) + sizeof(uint32_t));
+    std::atomic_ref<uint32_t> state(*state_word);
+    AcquireSRWLockExclusive(&g_guard_lock);
+    *owner_word = 0;
+    state.store(1, std::memory_order_release);
+    WakeAllConditionVariable(&g_guard_changed);
+    ReleaseSRWLockExclusive(&g_guard_lock);
+}
+#endif
 
 /*
  * Wrapped, not bound directly, so the reasoning above can be checked rather
@@ -168,7 +240,17 @@ static char bionic_dso_handle;
  * and an mmap length rounded to the wrong granule fails with EINVAL at the
  * first large allocation.
  */
+#if defined(_WIN32)
+static unsigned int windows_page_size()
+{
+    SYSTEM_INFO system_info{};
+    GetSystemInfo(&system_info);
+    return (unsigned int)system_info.dwPageSize;
+}
+static unsigned int bionic_page_size = windows_page_size();
+#else
 static unsigned int bionic_page_size = (unsigned int)getpagesize();
+#endif
 
 /*
  * tzname is the one data symbol that is *not* just an address.
@@ -185,10 +267,18 @@ static unsigned int bionic_page_size = (unsigned int)getpagesize();
  * guarantee it is populated before the first read.
  */
 namespace {
+#if defined(_WIN32)
+static char windows_timezone_utc[] = "UTC";
+static char *bionic_tzname[2] = {
+    windows_timezone_utc,
+    windows_timezone_utc,
+};
+#else
 struct TzInit {
     TzInit() { tzset(); }
 };
 [[maybe_unused]] const TzInit tz_init;
+#endif
 }
 
 /* ---------------------------------------------------------------- fcntl
@@ -211,9 +301,70 @@ extern "C" int bionic_fcntl(int fd, int cmd, ...)
 {
     va_list ap;
     va_start(ap, cmd);
+#if defined(_WIN32)
+    int arg = 0;
+    switch (cmd) {
+    case 0: /* F_DUPFD */
+    case 2: /* F_SETFD */
+    case 4: /* F_SETFL */
+        arg = va_arg(ap, int);
+        break;
+    default:
+        break;
+    }
+    va_end(ap);
+    switch (cmd) {
+    case 0: {
+        /* _dup() allocates the lowest available descriptor; retain temporary
+         * duplicates until one satisfies POSIX F_DUPFD's minimum. */
+        int *reserved = nullptr;
+        size_t count = 0;
+        size_t capacity = 0;
+        for (;;) {
+            const int duplicate = _dup(fd);
+            if (duplicate < 0) {
+                for (size_t i = 0; i < count; ++i)
+                    _close(reserved[i]);
+                free(reserved);
+                return -1;
+            }
+            if (duplicate >= arg) {
+                for (size_t i = 0; i < count; ++i)
+                    _close(reserved[i]);
+                free(reserved);
+                return duplicate;
+            }
+            if (count == capacity) {
+                const size_t next_capacity = capacity ? capacity * 2 : 8;
+                void *next = realloc(reserved,
+                                     next_capacity * sizeof(*reserved));
+                if (!next) {
+                    _close(duplicate);
+                    for (size_t i = 0; i < count; ++i)
+                        _close(reserved[i]);
+                    free(reserved);
+                    errno = ENOMEM;
+                    return -1;
+                }
+                reserved = static_cast<int *>(next);
+                capacity = next_capacity;
+            }
+            reserved[count++] = duplicate;
+        }
+    }
+    case 1: return 0;        /* F_GETFD */
+    case 2: return 0;        /* F_SETFD: host descriptors are non-inheritable */
+    case 3: return 0;        /* F_GETFL */
+    case 4: (void)arg; return 0; /* F_SETFL: regular-file flags are advisory */
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+#else
     void *arg = va_arg(ap, void *);
     va_end(ap);
     return fcntl(fd, cmd, arg);
+#endif
 }
 
 /* --------------------------------------------------------------- readdir_r
@@ -233,6 +384,65 @@ extern "C" int bionic_fcntl(int fd, int cmd, ...)
  * (line 11, "deprecated") because gmloader-next ships a real bionic libc.so
  * for it. This port does not.
  */
+#if defined(_WIN32)
+static uint8_t windows_dirent_type(int type)
+{
+    if (type == S_IFIFO) return 1;
+    if (type == S_IFCHR) return 2;
+    if (type == S_IFDIR) return 4;
+    if (type == S_IFBLK) return 6;
+    if (type == S_IFREG) return 8;
+    if (type == S_IFLNK) return 10;
+    if (type == S_IFSOCK) return 12;
+    return 0;
+}
+
+static void convert_windows_dirent(const struct dirent &host,
+                                   struct bionic_dirent *entry)
+{
+    entry->d_ino = (uint64_t)(uint32_t)host.d_ino;
+    entry->d_off = (int64_t)host.d_off;
+    entry->d_type = windows_dirent_type(host.d_type);
+    const size_t name_len = strnlen(host.d_name, sizeof(entry->d_name) - 1);
+    memcpy(entry->d_name, host.d_name, name_len);
+    entry->d_name[name_len] = '\0';
+    entry->d_reclen = (uint16_t)((offsetof(struct bionic_dirent, d_name) +
+                                  name_len + 1 + 7) & ~(size_t)7);
+}
+
+extern "C" struct bionic_dirent *bionic_readdir(DIR *dir)
+{
+    if (!dir)
+        return NULL;
+    struct dirent *host = readdir(dir);
+    if (!host)
+        return NULL;
+    static thread_local struct bionic_dirent converted;
+    convert_windows_dirent(*host, &converted);
+    return &converted;
+}
+
+extern "C" int bionic_readdir_r(DIR *dir, struct bionic_dirent *entry,
+                                struct bionic_dirent **result)
+{
+    if (!dir || !entry || !result)
+        return EINVAL;
+    struct dirent host_entry{};
+    struct dirent *host = NULL;
+    const int rc = readdir_r(dir, &host_entry, &host);
+    if (rc != 0) {
+        *result = NULL;
+        return rc;
+    }
+    if (!host) {
+        *result = NULL;
+        return 0;
+    }
+    convert_windows_dirent(*host, entry);
+    *result = entry;
+    return 0;
+}
+#else
 /* struct bionic_dirent is already declared in thunks/libc/bionic_file.h,
  * transcribed from bionic/libc/include/dirent.h and until now unused - the
  * generated table binds readdir() straight to the host's, which is the bug
@@ -316,6 +526,7 @@ extern "C" int bionic_readdir_r(DIR *dir, struct bionic_dirent *entry,
     *result = entry;
     return 0;
 }
+#endif
 
 DynLibFunction symtable_bionic[] = {
     /* No float crosses any of these boundaries, so select_either() resolves
@@ -333,7 +544,11 @@ DynLibFunction symtable_bionic[] = {
      * slot and the game dereferences them itself. */
     NO_THUNK("__dso_handle", (uintptr_t)&bionic_dso_handle),
     NO_THUNK("__page_size",  (uintptr_t)&bionic_page_size),
+#if defined(_WIN32)
+    NO_THUNK("tzname",       (uintptr_t)&bionic_tzname),
+#else
     NO_THUNK("tzname",       (uintptr_t)&tzname),
+#endif
 
     NO_THUNK("fcntl",     (uintptr_t)&bionic_fcntl),
     NO_THUNK("readdir",   (uintptr_t)&bionic_readdir),

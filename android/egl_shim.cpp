@@ -21,10 +21,12 @@
 
 #include "fb_probe.h"
 
+#if !defined(_WIN32)
 extern "C" void android_cursor_draw(int fb_width, int fb_height)
     __attribute__((weak));
 extern "C" void android_fb_probe(long frame, int width, int height)
     __attribute__((weak));
+#endif
 #include "so_util.h"
 #include "trace.h"
 
@@ -301,12 +303,14 @@ EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface surface)
      */
     int w = 0, h = 0;
     SDL_GL_GetDrawableSize(g_window, &w, &h);
+#if !defined(_WIN32)
     if (android_fb_probe)
         android_fb_probe(g_frames.load(std::memory_order_relaxed) + 1, w, h);
 
     /* Katamari supplies an optional host cursor; other loader profiles do not. */
     if (android_cursor_draw)
         android_cursor_draw(w, h);
+#endif
 
     SDL_GL_SwapWindow(g_window);
     /* Counted after the swap, not before: a frame the driver refused to present

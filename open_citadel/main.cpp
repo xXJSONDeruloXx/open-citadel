@@ -3,11 +3,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/sysinfo.h>
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <string>
+#include <system_error>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <sys/sysinfo.h>
+#endif
 
 #include <SDL2/SDL.h>
 
@@ -20,6 +33,7 @@
 #include "trace.h"
 #include "crash.h"
 #include "gles2_probe.h"
+#include "android_input_codes.h"
 
 extern "C" void android_egl_init(SDL_Window *window, SDL_GLContext gl);
 
@@ -79,10 +93,59 @@ static int env_int(const char *name, int fallback)
         ? (int)parsed : fallback;
 }
 
-static bool exists(const char *path)
+static bool env_bool(const char *name, bool fallback)
 {
-    struct stat st {};
-    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+    const char *value = getenv(name);
+    if (!value || !*value)
+        return fallback;
+    if (SDL_strcasecmp(value, "1") == 0 ||
+        SDL_strcasecmp(value, "true") == 0 ||
+        SDL_strcasecmp(value, "on") == 0)
+        return true;
+    if (SDL_strcasecmp(value, "0") == 0 ||
+        SDL_strcasecmp(value, "false") == 0 ||
+        SDL_strcasecmp(value, "off") == 0)
+        return false;
+    return fallback;
+}
+
+static bool file_is_present(const std::filesystem::path &path)
+{
+    std::error_code error;
+    return std::filesystem::is_regular_file(path, error);
+}
+
+static std::string default_game_dir(const char *argv0, const char *abi_dir)
+{
+    std::error_code error;
+    std::filesystem::path cwd = std::filesystem::current_path(error);
+    if (error)
+        cwd = ".";
+
+    error.clear();
+    std::filesystem::path executable = std::filesystem::absolute(argv0, error);
+    if (error)
+        executable = cwd / argv0;
+    const std::filesystem::path executable_dir = executable.parent_path();
+
+    const std::filesystem::path candidates[] = {
+        cwd / "gamedata" / "epic-citadel-1.07",
+        executable_dir / "gamedata" / "epic-citadel-1.07",
+        executable_dir / ".." / ".." / ".." / "gamedata" /
+            "epic-citadel-1.07",
+    };
+    for (const auto &candidate : candidates) {
+        error.clear();
+        const std::filesystem::path resolved =
+            std::filesystem::weakly_canonical(candidate, error);
+        const std::filesystem::path game_dir = error
+            ? candidate.lexically_normal() : resolved;
+        if (file_is_present(game_dir / abi_dir / "libUnrealEngine3.so") &&
+            file_is_present(game_dir / "obb" /
+                            "main.903107.com.epicgames.EpicCitadel.obb"))
+            return game_dir.string();
+    }
+    return {};
 }
 
 static SDL_Window *create_window(int width, int height, SDL_GLContext *out_gl)
@@ -117,6 +180,19 @@ static SDL_Window *create_window(int width, int height, SDL_GLContext *out_gl)
     return window;
 }
 
+static void toggle_fullscreen(SDL_Window *window)
+{
+    const bool fullscreen =
+        (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+    if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+        fprintf(stderr, "OpenCitadel: fullscreen toggle -> %s\n",
+                fullscreen ? "windowed" : "desktop");
+    if (SDL_SetWindowFullscreen(window, fullscreen ? 0 :
+                                SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+        fprintf(stderr, "OpenCitadel: fullscreen toggle failed: %s\n",
+                SDL_GetError());
+}
+
 template <typename T>
 static T guest_symbol(so_module *mod, const char *name)
 {
@@ -130,43 +206,63 @@ static T guest_symbol(so_module *mod, const char *name)
 static int android_keycode(SDL_Keycode key)
 {
     if (key >= SDLK_0 && key <= SDLK_9)
-        return 7 + (int)(key - SDLK_0);
+        return android_input::kKey0 + (int)(key - SDLK_0);
     if (key >= SDLK_a && key <= SDLK_z)
-        return 29 + (int)(key - SDLK_a);
+        return android_input::kKeyA + (int)(key - SDLK_a);
+    if (key >= SDLK_KP_0 && key <= SDLK_KP_9)
+        return android_input::kKeyNumpad0 + (int)(key - SDLK_KP_0);
+    if (key >= SDLK_F1 && key <= SDLK_F12)
+        return android_input::kKeyF1 + (int)(key - SDLK_F1);
 
     switch (key) {
-    case SDLK_HOME: return 3;
-    case SDLK_ESCAPE: return 4; /* KEYCODE_BACK */
-    case SDLK_LEFT: return 21;
-    case SDLK_RIGHT: return 22;
-    case SDLK_UP: return 19;
-    case SDLK_DOWN: return 20;
-    case SDLK_TAB: return 61;
-    case SDLK_SPACE: return 62;
-    case SDLK_RETURN:
-    case SDLK_KP_ENTER: return 66;
+    case SDLK_HOME: return android_input::kKeyHome;
+    case SDLK_ESCAPE: return android_input::kKeyEscape;
+    case SDLK_LEFT: return android_input::kKeyDpadLeft;
+    case SDLK_RIGHT: return android_input::kKeyDpadRight;
+    case SDLK_UP: return android_input::kKeyDpadUp;
+    case SDLK_DOWN: return android_input::kKeyDpadDown;
+    case SDLK_PAGEUP: return android_input::kKeyPageUp;
+    case SDLK_PAGEDOWN: return android_input::kKeyPageDown;
+    case SDLK_END: return android_input::kKeyMoveEnd;
+    case SDLK_INSERT: return android_input::kKeyInsert;
+    case SDLK_TAB: return android_input::kKeyTab;
+    case SDLK_SPACE: return android_input::kKeySpace;
+    case SDLK_RETURN: return android_input::kKeyEnter;
+    case SDLK_KP_ENTER: return android_input::kKeyNumpadEnter;
     case SDLK_BACKSPACE:
-    case SDLK_DELETE: return 67;
-    case SDLK_BACKQUOTE: return 68;
-    case SDLK_MINUS:
-    case SDLK_KP_MINUS: return 69;
-    case SDLK_EQUALS: return 70;
-    case SDLK_LEFTBRACKET: return 71;
-    case SDLK_RIGHTBRACKET: return 72;
-    case SDLK_BACKSLASH: return 73;
-    case SDLK_SEMICOLON: return 74;
-    case SDLK_QUOTE: return 75;
-    case SDLK_SLASH:
-    case SDLK_KP_DIVIDE: return 76;
-    case SDLK_MENU: return 82;
-    case SDLK_LALT: return 57;
-    case SDLK_RALT: return 58;
-    case SDLK_LSHIFT: return 59;
-    case SDLK_RSHIFT: return 60;
-    case SDLK_COMMA: return 55;
-    case SDLK_PERIOD: return 56;
-    case SDLK_KP_MULTIPLY: return 17;
-    case SDLK_KP_PLUS: return 81;
+    case SDLK_DELETE: return android_input::kKeyDel;
+    case SDLK_BACKQUOTE: return android_input::kKeyGrave;
+    case SDLK_MINUS: return android_input::kKeyMinus;
+    case SDLK_KP_MINUS: return android_input::kKeyNumpadSubtract;
+    case SDLK_EQUALS: return android_input::kKeyEquals;
+    case SDLK_KP_EQUALS: return android_input::kKeyNumpadEquals;
+    case SDLK_LEFTBRACKET: return android_input::kKeyLeftBracket;
+    case SDLK_RIGHTBRACKET: return android_input::kKeyRightBracket;
+    case SDLK_BACKSLASH: return android_input::kKeyBackslash;
+    case SDLK_SEMICOLON: return android_input::kKeySemicolon;
+    case SDLK_QUOTE: return android_input::kKeyApostrophe;
+    case SDLK_SLASH: return android_input::kKeySlash;
+    case SDLK_KP_DIVIDE: return android_input::kKeyNumpadDivide;
+    case SDLK_KP_MULTIPLY: return android_input::kKeyNumpadMultiply;
+    case SDLK_KP_PLUS: return android_input::kKeyNumpadAdd;
+    case SDLK_KP_PERIOD: return android_input::kKeyNumpadDot;
+    case SDLK_KP_COMMA: return android_input::kKeyNumpadComma;
+    case SDLK_MENU: return android_input::kKeyMenu;
+    case SDLK_LALT: return android_input::kKeyAltLeft;
+    case SDLK_RALT: return android_input::kKeyAltRight;
+    case SDLK_LSHIFT: return android_input::kKeyShiftLeft;
+    case SDLK_RSHIFT: return android_input::kKeyShiftRight;
+    case SDLK_LCTRL: return android_input::kKeyCtrlLeft;
+    case SDLK_RCTRL: return android_input::kKeyCtrlRight;
+    case SDLK_CAPSLOCK: return android_input::kKeyCapsLock;
+    case SDLK_SCROLLLOCK: return android_input::kKeyScrollLock;
+    case SDLK_NUMLOCKCLEAR: return android_input::kKeyNumLock;
+    case SDLK_PRINTSCREEN: return android_input::kKeySysRq;
+    case SDLK_PAUSE: return android_input::kKeyBreak;
+    case SDLK_LGUI: return android_input::kKeyMetaLeft;
+    case SDLK_RGUI: return android_input::kKeyMetaRight;
+    case SDLK_COMMA: return android_input::kKeyComma;
+    case SDLK_PERIOD: return android_input::kKeyPeriod;
     default: return 0;
     }
 }
@@ -174,21 +270,21 @@ static int android_keycode(SDL_Keycode key)
 static int android_gamepad_key(SDL_GameControllerButton button)
 {
     switch (button) {
-    case SDL_CONTROLLER_BUTTON_A: return 96;
-    case SDL_CONTROLLER_BUTTON_B: return 97;
-    case SDL_CONTROLLER_BUTTON_X: return 99;
-    case SDL_CONTROLLER_BUTTON_Y: return 100;
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return 102;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return 103;
-    case SDL_CONTROLLER_BUTTON_LEFTSTICK: return 106;
-    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return 107;
-    case SDL_CONTROLLER_BUTTON_START: return 108;
-    case SDL_CONTROLLER_BUTTON_BACK: return 109;
-    case SDL_CONTROLLER_BUTTON_GUIDE: return 110;
-    case SDL_CONTROLLER_BUTTON_DPAD_UP: return 19;
-    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return 20;
-    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return 21;
-    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return 22;
+    case SDL_CONTROLLER_BUTTON_A: return android_input::kKeyButtonA;
+    case SDL_CONTROLLER_BUTTON_B: return android_input::kKeyButtonB;
+    case SDL_CONTROLLER_BUTTON_X: return android_input::kKeyButtonX;
+    case SDL_CONTROLLER_BUTTON_Y: return android_input::kKeyButtonY;
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return android_input::kKeyButtonL1;
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return android_input::kKeyButtonR1;
+    case SDL_CONTROLLER_BUTTON_LEFTSTICK: return android_input::kKeyButtonThumbL;
+    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return android_input::kKeyButtonThumbR;
+    case SDL_CONTROLLER_BUTTON_START: return android_input::kKeyButtonStart;
+    case SDL_CONTROLLER_BUTTON_BACK: return android_input::kKeyButtonSelect;
+    case SDL_CONTROLLER_BUTTON_GUIDE: return android_input::kKeyButtonMode;
+    case SDL_CONTROLLER_BUTTON_DPAD_UP: return android_input::kKeyDpadUp;
+    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return android_input::kKeyDpadDown;
+    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return android_input::kKeyDpadLeft;
+    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return android_input::kKeyDpadRight;
     default: return 0;
     }
 }
@@ -196,12 +292,12 @@ static int android_gamepad_key(SDL_GameControllerButton button)
 static int android_axis(SDL_GameControllerAxis axis)
 {
     switch (axis) {
-    case SDL_CONTROLLER_AXIS_LEFTX: return 0;   /* AXIS_X */
-    case SDL_CONTROLLER_AXIS_LEFTY: return 1;   /* AXIS_Y */
-    case SDL_CONTROLLER_AXIS_RIGHTX: return 11; /* AXIS_Z */
-    case SDL_CONTROLLER_AXIS_RIGHTY: return 14; /* AXIS_RZ */
-    case SDL_CONTROLLER_AXIS_TRIGGERLEFT: return 17;  /* AXIS_LTRIGGER */
-    case SDL_CONTROLLER_AXIS_TRIGGERRIGHT: return 18; /* AXIS_RTRIGGER */
+    case SDL_CONTROLLER_AXIS_LEFTX: return android_input::kAxisX;
+    case SDL_CONTROLLER_AXIS_LEFTY: return android_input::kAxisY;
+    case SDL_CONTROLLER_AXIS_RIGHTX: return android_input::kAxisZ;
+    case SDL_CONTROLLER_AXIS_RIGHTY: return android_input::kAxisRz;
+    case SDL_CONTROLLER_AXIS_TRIGGERLEFT: return android_input::kAxisLtrigger;
+    case SDL_CONTROLLER_AXIS_TRIGGERRIGHT: return android_input::kAxisRtrigger;
     default: return -1;
     }
 }
@@ -235,12 +331,17 @@ int main(int argc, char **argv)
     setvbuf(stdout, nullptr, _IONBF, 0);
     setvbuf(stderr, nullptr, _IONBF, 0);
 
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <imported-open-citadel-directory>\n", argv[0]);
+    if (argc > 2 || (argc == 2 && strcmp(argv[1], "--help") == 0)) {
+        fprintf(stderr, "usage: %s [imported-open-citadel-directory]\n", argv[0]);
+        fprintf(stderr,
+                "If omitted, searches ./gamedata/epic-citadel-1.07 and "
+                "the matching path beside the executable.\n"
+                "OPEN_CITADEL_GAME_DIR may also select the data directory.\n");
+        if (argc == 2)
+            return 0;
         return 2;
     }
 
-    const char *game_dir = argv[1];
 #if defined(__i386__)
     const char *abi_dir = "lib/x86";
 #elif defined(__arm__)
@@ -248,6 +349,19 @@ int main(int argc, char **argv)
 #else
 #error Open Citadel bring-up currently supports i386 and ARMv7
 #endif
+
+    const char *requested_game_dir = argc == 2
+        ? argv[1] : getenv("OPEN_CITADEL_GAME_DIR");
+    std::string game_dir_storage = requested_game_dir
+        ? requested_game_dir : default_game_dir(argv[0], abi_dir);
+    if (game_dir_storage.empty()) {
+        fprintf(stderr,
+                "OpenCitadel: no imported Epic Citadel 1.07 data found; "
+                "pass its directory or set OPEN_CITADEL_GAME_DIR\n");
+        return 2;
+    }
+    const char *game_dir = game_dir_storage.c_str();
+    fprintf(stderr, "OpenCitadel: game data=%s\n", game_dir);
 
     char lib_dir[PATH_MAX];
     char lib_path[PATH_MAX];
@@ -257,11 +371,11 @@ int main(int argc, char **argv)
     snprintf(main_obb, sizeof(main_obb),
              "%s/obb/main.903107.com.epicgames.EpicCitadel.obb", game_dir);
 
-    if (!exists(lib_path)) {
+    if (!file_is_present(lib_path)) {
         fprintf(stderr, "OpenCitadel: missing engine %s\n", lib_path);
         return 2;
     }
-    if (!exists(main_obb)) {
+    if (!file_is_present(main_obb)) {
         fprintf(stderr, "OpenCitadel: missing donor OBB %s\n", main_obb);
         return 2;
     }
@@ -284,7 +398,17 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    SDL_GL_SetSwapInterval(0);
+    if (SDL_GL_SetSwapInterval(env_bool("OPEN_CITADEL_VSYNC", true) ? 1 : 0) != 0)
+        fprintf(stderr, "OpenCitadel: swap interval unavailable: %s\n",
+                SDL_GetError());
+    if (getenv("OPEN_CITADEL_TRACE_INPUT")) {
+        const Uint32 window_flags = SDL_GetWindowFlags(window);
+        fprintf(stderr,
+                "OpenCitadel: input-focus=%d keyboard-window=%p window=%p "
+                "flags=0x%x\n",
+                (window_flags & SDL_WINDOW_INPUT_FOCUS) != 0,
+                (void *)SDL_GetKeyboardFocus(), (void *)window, window_flags);
+    }
     load_gles2_funcs();
     android_egl_init(window, gl);
     open_citadel_java_configure(window, gl, game_dir, main_obb, nullptr);
@@ -378,11 +502,18 @@ int main(int argc, char **argv)
      * thread is launched. The newer 1.07 donor passes display density as the
      * second SystemStats argument; 1.0 corresponds to Android's baseline
      * density and is overrideable for diagnostics. */
-    struct sysinfo system_info {};
     jlong available_memory = 512LL * 1024LL * 1024LL;
+#if defined(_WIN32)
+    MEMORYSTATUSEX system_info{};
+    system_info.dwLength = sizeof(system_info);
+    if (GlobalMemoryStatusEx(&system_info))
+        available_memory = (jlong)system_info.ullAvailPhys;
+#else
+    struct sysinfo system_info {};
     if (sysinfo(&system_info) == 0)
         available_memory = (jlong)system_info.freeram *
                            (jlong)system_info.mem_unit;
+#endif
     float density_scale = 1.0f;
     if (const char *density = getenv("OPEN_CITADEL_DENSITY_SCALE"))
         density_scale = std::max(0.1f, (float)atof(density));
@@ -427,6 +558,10 @@ int main(int argc, char **argv)
     long last_reported = -1;
     bool running = true;
     bool interrupted = false;
+    bool alt_enter_toggled = false;
+    Uint32 mouse_touch_buttons = 0;
+    int mouse_x = width / 2;
+    int mouse_y = height / 2;
 
     SDL_GameController *controller = nullptr;
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
@@ -450,16 +585,35 @@ int main(int argc, char **argv)
                 break;
 
             case SDL_MOUSEBUTTONDOWN:
-            case SDL_MOUSEBUTTONUP:
-                if (event.button.button == SDL_BUTTON_LEFT) {
-                    native_input(env, activity,
-                                 event.type == SDL_MOUSEBUTTONDOWN ? 0 : 1,
-                                 event.button.x, event.button.y, 0, event_time);
+            case SDL_MOUSEBUTTONUP: {
+                const Uint32 button_mask =
+                    event.button.button == SDL_BUTTON_LEFT ? SDL_BUTTON_LMASK :
+                    event.button.button == SDL_BUTTON_RIGHT ? SDL_BUTTON_RMASK :
+                    0;
+                mouse_x = event.button.x;
+                mouse_y = event.button.y;
+                if (button_mask) {
+                    const bool was_active = mouse_touch_buttons != 0;
+                    if (event.type == SDL_MOUSEBUTTONDOWN)
+                        mouse_touch_buttons |= button_mask;
+                    else
+                        mouse_touch_buttons &= ~button_mask;
+
+                    if (!was_active && mouse_touch_buttons)
+                        native_input(env, activity, android_input::kActionDown,
+                                     mouse_x, mouse_y, 0, event_time);
+                    else if (was_active && !mouse_touch_buttons)
+                        native_input(env, activity, android_input::kActionUp,
+                                     mouse_x, mouse_y, 0, event_time);
                 }
                 break;
+            }
             case SDL_MOUSEMOTION:
-                if (event.motion.state & SDL_BUTTON_LMASK)
-                    native_input(env, activity, 2, event.motion.x,
+                mouse_x = event.motion.x;
+                mouse_y = event.motion.y;
+                if (mouse_touch_buttons)
+                    native_input(env, activity, android_input::kActionMove,
+                                 event.motion.x,
                                  event.motion.y, 0, event_time);
                 break;
             case SDL_FINGERDOWN:
@@ -467,8 +621,11 @@ int main(int argc, char **argv)
             case SDL_FINGERMOTION: {
                 int dw = 0, dh = 0;
                 SDL_GetWindowSize(window, &dw, &dh);
-                const int action = event.type == SDL_FINGERDOWN ? 0 :
-                                   event.type == SDL_FINGERUP ? 1 : 2;
+                const int action = event.type == SDL_FINGERDOWN
+                    ? android_input::kActionDown
+                    : event.type == SDL_FINGERUP
+                        ? android_input::kActionUp
+                        : android_input::kActionMove;
                 native_input(env, activity, action,
                              (int)std::lround(event.tfinger.x * dw),
                              (int)std::lround(event.tfinger.y * dh),
@@ -479,15 +636,56 @@ int main(int argc, char **argv)
 
             case SDL_KEYDOWN:
             case SDL_KEYUP: {
+                const SDL_Keycode key = event.key.keysym.sym;
+                const bool key_down = event.type == SDL_KEYDOWN;
+                if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+                    fprintf(stderr, "OpenCitadel: key %s %s scancode=%d mod=0x%x\n",
+                            SDL_GetKeyName(key), key_down ? "down" : "up",
+                            (int)event.key.keysym.scancode,
+                            (unsigned)event.key.keysym.mod);
+                const bool is_enter = key == SDLK_RETURN ||
+                                      key == SDLK_KP_ENTER;
+                if (is_enter && !key_down && alt_enter_toggled) {
+                    alt_enter_toggled = false;
+                    break;
+                }
+                if (is_enter && alt_enter_toggled)
+                    break;
+                if (is_enter && key_down &&
+                    (event.key.keysym.mod & KMOD_ALT)) {
+                    if (!event.key.repeat) {
+                        alt_enter_toggled = true;
+                        toggle_fullscreen(window);
+                    }
+                    break;
+                }
+                if (key == SDLK_F11) {
+                    if (key_down && !event.key.repeat)
+                        toggle_fullscreen(window);
+                    break;
+                }
+                if (key == SDLK_F1) {
+                    if (key_down && !event.key.repeat) {
+                        const char *controls =
+                            "Left-click to tap. Hold and drag either mouse "
+                            "button to swipe and look around. Escape sends "
+                            "Back to the game. F11 or Alt+Enter toggles "
+                            "fullscreen.";
+                        SDL_ShowSimpleMessageBox(
+                            SDL_MESSAGEBOX_INFORMATION,
+                            "Epic Citadel controls", controls, window);
+                    }
+                    break;
+                }
                 if (event.key.repeat)
                     break;
-                const int code = android_keycode(event.key.keysym.sym);
+                const int code = android_keycode(key);
                 if (code)
                     native_keyboard(env, activity, 0,
-                                    event.type == SDL_KEYDOWN ? 0 : 1,
+                                    key_down ? android_input::kActionDown
+                                             : android_input::kActionUp,
                                     code, unicode_for_key(event.key));
-                if (event.type == SDL_KEYUP &&
-                    event.key.keysym.sym == SDLK_ESCAPE)
+                if (!key_down && key == SDLK_ESCAPE)
                     native_back();
                 break;
             }
@@ -535,6 +733,13 @@ int main(int argc, char **argv)
                 } else if ((event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
                             event.window.event == SDL_WINDOWEVENT_MINIMIZED) &&
                            !interrupted) {
+                    if (mouse_touch_buttons) {
+                        native_input(env, activity,
+                                     android_input::kActionCancel,
+                                     mouse_x, mouse_y, 0, event_time);
+                        mouse_touch_buttons = 0;
+                    }
+                    alt_enter_toggled = false;
                     native_interrupt(env, activity, JNI_TRUE);
                     interrupted = true;
                 } else if ((event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED ||

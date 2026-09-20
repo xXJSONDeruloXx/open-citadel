@@ -11,18 +11,27 @@
 #ifndef KATAMARI_TRACE_H
 #define KATAMARI_TRACE_H
 
+#if defined(__GNUC__) || defined(__clang__)
+#define OPEN_CITADEL_PRINTF_FORMAT(format_index, arg_index) \
+    __attribute__((format(printf, format_index, arg_index)))
+#else
+#define OPEN_CITADEL_PRINTF_FORMAT(format_index, arg_index)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Prints "TRACE: <msg>" to stderr, unbuffered, when LOADER_TRACE is set. */
-void trace(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void trace(const char *fmt, ...) OPEN_CITADEL_PRINTF_FORMAT(1, 2);
 
 /* Always printed, tracing on or off: the user needs to see why it refused. */
-void fatal(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void fatal(const char *fmt, ...) OPEN_CITADEL_PRINTF_FORMAT(1, 2);
 
 #ifdef __cplusplus
 }
 #endif
+
+#undef OPEN_CITADEL_PRINTF_FORMAT
 
 #endif
