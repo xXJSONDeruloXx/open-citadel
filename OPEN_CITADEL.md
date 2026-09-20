@@ -200,9 +200,13 @@ Windowed resolution is selected at launch with `OPEN_CITADEL_WIDTH` and
 fullscreen. Startup rendering has also been verified at 1024x768 (4:3) and
 2560x1080 (21:9 ultrawide); width and height are independently selectable
 within 320–7680 by 240–4320, with no preset aspect-ratio list. The Windows
-window is fixed-size after startup because live UE3 viewport resizing currently
-leaves the scene partially black; F11/Alt+Enter display a notice instead of
-switching modes. A Windows settings file is created under
+window is resizable at runtime (320x240 minimum). On `SDL_WINDOWEVENT_SIZE_CHANGED`,
+the host queries the GL drawable size, updates the guest through
+`NativeCallback_PostInitUpdate`, and scales mouse/touch input into drawable
+pixels. The windowed size is saved after a 500 ms resize debounce. A live
+1280x720-to-1203x720 resize was visually checked with the scene still rendering.
+F11/Alt+Enter now request borderless fullscreen; that transition remains to be
+visually verified. A Windows settings file is created under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width, height, fullscreen,
 VSync, the FPS cap, benchmark mode, mouse sensitivity, vertical inversion, and
 movement keys are persistent; `OPEN_CITADEL_CONFIG` can select another file.
@@ -288,7 +292,8 @@ build remains a useful secondary platform check, not the current deliverable.
 - [x] persistent Windows settings, custom display sizes, and live performance overlay
 - [ ] live visual/input validation of the in-game ImGui overlay
 - [x] optional uncapped benchmark mode with VSync disabled for measurement
-- [ ] live viewport resizing/fullscreen switching
+- [x] live Windows viewport resizing with guest size updates and input scaling
+- [ ] live fullscreen switching visual verification
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately
 - [ ] ARMHF CI build

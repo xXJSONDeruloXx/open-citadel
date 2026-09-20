@@ -109,20 +109,23 @@ in the Game tab or set `OPEN_CITADEL_UNCAPPED_BENCHMARK=1`. This starts UE3 in
 benchmark mode, removes its 60 FPS limit, and forces VSync off for that run;
 the saved VSync preference is preserved.
 
-The settings file also stores window width/height and fullscreen preference;
+The settings file stores the startup window size and fullscreen preference;
 the Display tab and environment variables accept arbitrary sizes/aspect ratios.
-Those display choices apply on the next launch because live Win32 viewport
-resizing/fullscreen switching is not reliable yet. Environment variables
-override matching settings-file values. Mouse sensitivity defaults to `1.0`
-(accepted range `0.1`–`4.0`):
+On Windows the window can also be resized live (minimum 320x240). Each resize
+updates UE3 with the GL drawable dimensions and scales mouse/touch coordinates
+to match; the windowed size is saved after resizing settles. A live resize from
+1280x720 to 1203x720 was visually checked with the scene still rendering.
+F11/Alt+Enter request borderless fullscreen, but that transition still needs a
+separate visual validation pass. Environment variables override matching
+settings-file values. Mouse sensitivity defaults to `1.0` (accepted range
+`0.1`–`4.0`):
 
 ```powershell
 $env:OPEN_CITADEL_MOUSE_SENSITIVITY = '1.5'
 $env:OPEN_CITADEL_INVERT_MOUSE_Y = '1'
 ```
 
-On Windows, choose a windowed render size before launch; the window is fixed
-after startup because live UE3 viewport resizing is not reliable yet:
+On Windows, choose a starting window size before launch:
 
 ```powershell
 $env:OPEN_CITADEL_WIDTH = '1920'
@@ -132,13 +135,13 @@ $env:OPEN_CITADEL_HEIGHT = '1080'
 
 Width and height are selected independently (320–7680 by 240–4320); there is no
 preset aspect-ratio list. Startup rendering has been verified at 1024x768 (4:3)
-and 2560x1080 (21:9 ultrawide), as well as 1920x1080. Restart after changing
-either dimension; live viewport resizing is not supported yet.
+and 2560x1080 (21:9 ultrawide), as well as 1920x1080. The Display tab's saved
+startup size applies on the next launch; a running window can be dragged to
+another size immediately.
 
 For borderless desktop fullscreen, set `$env:OPEN_CITADEL_FULLSCREEN = '1'`
 before launching. Fullscreen at the desktop's 3440×1440 size and windowed
-1920×1080 startup have both rendered successfully. F11 and Alt+Enter currently
-report that live display-mode changes are unavailable. F1 shows help; Escape
+1920×1080 startup have both rendered successfully. F1 shows help; Escape
 sends Back to the game except while the settings overlay is open. WASD movement
 through the guest joystick callback is confirmed working. Rebindable movement
 controls are available from F2; gamepad behavior remains future work. VSync is

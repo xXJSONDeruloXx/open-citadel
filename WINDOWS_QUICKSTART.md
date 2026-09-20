@@ -24,8 +24,12 @@ in-game settings overlay. Its Game tab displays live FPS/frame time and
 controls mouse, VSync, and frame-cap settings. Use Controls to rebind movement
 keys; Escape cancels a rebind and **Reset movement keys to WASD** restores
 defaults. Display accepts custom width/height and fullscreen settings for the
-next launch. Shift+F2 opens the legacy native settings dialog. Settings are
-saved under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
+next launch. The window can also be resized live (320x240 minimum); UE3 receives
+the new drawable size, mouse/touch coordinates are rescaled, and the windowed
+size is saved after resizing settles. F11/Alt+Enter request borderless
+fullscreen; that mode switch still needs visual validation. Shift+F2 opens the
+legacy native settings dialog. Settings are saved under
+`%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
 
 The game defaults to its 60 FPS cap. In the Game tab, enable **Disable the
 game's 60 FPS cap next launch** and restart to uncap it, or set

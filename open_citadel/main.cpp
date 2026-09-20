@@ -41,6 +41,7 @@
 #include "android_input_codes.h"
 #include "keyboard_controls.h"
 #include "settings.h"
+#include "window_geometry.h"
 #if defined(_WIN32)
 #include "desktop_overlay.h"
 #endif
@@ -755,13 +756,7 @@ static SDL_Window *create_window(int width, int height, bool fullscreen,
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    Uint32 flags = SDL_WINDOW_OPENGL;
-#if !defined(_WIN32)
-    flags |= SDL_WINDOW_RESIZABLE;
-#else
-    /* UE3 keeps its startup viewport dimensions; changing the SDL surface
-     * after initialization currently leaves the guest rendering letterboxed. */
-#endif
+    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
     if (fullscreen)
         flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     if (getenv("OPEN_CITADEL_HIDDEN"))
@@ -773,6 +768,7 @@ static SDL_Window *create_window(int width, int height, bool fullscreen,
     if (!window)
         return nullptr;
 
+    SDL_SetWindowMinimumSize(window, 320, 240);
     SDL_GLContext gl = SDL_GL_CreateContext(window);
     if (!gl) {
         SDL_DestroyWindow(window);
@@ -784,18 +780,6 @@ static SDL_Window *create_window(int width, int height, bool fullscreen,
 
 static void toggle_fullscreen(SDL_Window *window)
 {
-#if defined(_WIN32)
-    static bool already_notified = false;
-    if (already_notified)
-        return;
-    already_notified = true;
-    SDL_ShowSimpleMessageBox(
-        SDL_MESSAGEBOX_INFORMATION, "Epic Citadel display mode",
-        "The Windows build selects resolution and fullscreen at startup. "
-        "Set OPEN_CITADEL_WIDTH and OPEN_CITADEL_HEIGHT for windowed size, "
-        "or OPEN_CITADEL_FULLSCREEN=1 for fullscreen. Live mode changes "
-        "are not available yet.", window);
-#else
     const bool fullscreen =
         (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
     if (getenv("OPEN_CITADEL_TRACE_INPUT"))
@@ -805,7 +789,6 @@ static void toggle_fullscreen(SDL_Window *window)
                                 SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
         fprintf(stderr, "OpenCitadel: fullscreen toggle failed: %s\n",
                 SDL_GetError());
-#endif
 }
 
 template <typename T>
@@ -1089,6 +1072,8 @@ int main(int argc, char **argv)
 
     int width = settings.width;
     int height = settings.height;
+    int window_width = 0;
+    int window_height = 0;
     SDL_GLContext gl = nullptr;
     SDL_Window *window = create_window(width, height, settings.fullscreen, &gl);
     if (!window) {
@@ -1097,11 +1082,20 @@ int main(int argc, char **argv)
         SDL_Quit();
         return 1;
     }
-    if (settings.fullscreen) {
-        SDL_GL_GetDrawableSize(window, &width, &height);
-        fprintf(stderr, "OpenCitadel: fullscreen render size=%dx%d\n",
-                width, height);
+    SDL_GetWindowSize(window, &window_width, &window_height);
+    SDL_GL_GetDrawableSize(window, &width, &height);
+    if (width <= 0 || height <= 0) {
+        width = std::max(window_width, 1);
+        height = std::max(window_height, 1);
     }
+    if (window_width <= 0)
+        window_width = width;
+    if (window_height <= 0)
+        window_height = height;
+    fprintf(stderr,
+            "OpenCitadel: initial window=%dx%d drawable=%dx%d fullscreen=%d\n",
+            window_width, window_height, width, height,
+            settings.fullscreen ? 1 : 0);
 
     if (SDL_GL_SetSwapInterval(active_vsync ? 1 : 0) != 0)
         fprintf(stderr, "OpenCitadel: swap interval unavailable: %s\n",
@@ -1266,14 +1260,18 @@ int main(int argc, char **argv)
     Uint64 fps_sample_start = 0;
     long fps_sample_frames = -1;
     long last_reported = -1;
+    bool window_size_save_pending = false;
+    Uint64 window_size_save_deadline = 0;
     bool running = true;
     bool interrupted = false;
     bool alt_enter_toggled = false;
     Uint32 mouse_touch_buttons = 0;
-    int mouse_x = width / 2;
-    int mouse_y = height / 2;
-    float touch_x = (float)mouse_x;
-    float touch_y = (float)mouse_y;
+    int mouse_x = window_width / 2;
+    int mouse_y = window_height / 2;
+    float touch_x = open_citadel::scale_position(
+        static_cast<float>(mouse_x), window_width, width);
+    float touch_y = open_citadel::scale_position(
+        static_cast<float>(mouse_y), window_height, height);
 
     SDL_GameController *controller = nullptr;
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
@@ -1557,10 +1555,13 @@ int main(int argc, char **argv)
                         mouse_touch_buttons &= ~button_mask;
 
                     if (!was_active && mouse_touch_buttons) {
-                        touch_x = (float)mouse_x;
-                        touch_y = (float)mouse_y;
+                        touch_x = open_citadel::scale_position(
+                            static_cast<float>(mouse_x), window_width, width);
+                        touch_y = open_citadel::scale_position(
+                            static_cast<float>(mouse_y), window_height, height);
                         native_input(env, activity, android_input::kActionDown,
-                                     mouse_x, mouse_y, 0, event_time);
+                                     (int)std::lround(touch_x),
+                                     (int)std::lround(touch_y), 0, event_time);
                     } else if (was_active && !mouse_touch_buttons) {
                         native_input(env, activity, android_input::kActionUp,
                                      (int)std::lround(touch_x),
@@ -1571,8 +1572,12 @@ int main(int argc, char **argv)
             }
             case SDL_MOUSEMOTION:
                 if (mouse_touch_buttons) {
-                    const int delta_x = event.motion.x - mouse_x;
-                    const int delta_y = event.motion.y - mouse_y;
+                    const float delta_x = open_citadel::scale_delta(
+                        static_cast<float>(event.motion.x - mouse_x),
+                        window_width, width);
+                    const float delta_y = open_citadel::scale_delta(
+                        static_cast<float>(event.motion.y - mouse_y),
+                        window_height, height);
                     touch_x = std::clamp(
                         touch_x + delta_x * settings.mouse_sensitivity,
                         0.0f, (float)width - 1.0f);
@@ -1593,16 +1598,18 @@ int main(int argc, char **argv)
             case SDL_FINGERDOWN:
             case SDL_FINGERUP:
             case SDL_FINGERMOTION: {
-                int dw = 0, dh = 0;
-                SDL_GetWindowSize(window, &dw, &dh);
                 const int action = event.type == SDL_FINGERDOWN
                     ? android_input::kActionDown
                     : event.type == SDL_FINGERUP
                         ? android_input::kActionUp
                         : android_input::kActionMove;
                 native_input(env, activity, action,
-                             (int)std::lround(event.tfinger.x * dw),
-                             (int)std::lround(event.tfinger.y * dh),
+                             (int)std::lround(std::clamp(
+                                 event.tfinger.x * width, 0.0f,
+                                 static_cast<float>(width - 1))),
+                             (int)std::lround(std::clamp(
+                                 event.tfinger.y * height, 0.0f,
+                                 static_cast<float>(height - 1))),
                              (jint)(event.tfinger.fingerId & 0x7fffffff),
                              event_time);
                 break;
@@ -1737,8 +1744,8 @@ int main(int argc, char **argv)
                             "drag with the mouse to look around. F2 opens "
                             "desktop settings; Shift+F2 opens the legacy "
                             "settings dialog; Escape closes the overlay. "
-                            "Window "
-                            "size and fullscreen apply after restarting.\n\n"
+                            "Resize the window freely; F11 or Alt+Enter "
+                            "toggles fullscreen.\n\n"
                             "Settings file: " +
                             (settings_path.empty()
                                  ? std::string("unavailable")
@@ -1884,28 +1891,57 @@ int main(int argc, char **argv)
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                     int drawable_width = 0;
                     int drawable_height = 0;
-                    int window_width = 0;
-                    int window_height = 0;
                     SDL_GetWindowSize(window, &window_width, &window_height);
                     SDL_GL_GetDrawableSize(window, &drawable_width,
                                            &drawable_height);
-                    if (getenv("OPEN_CITADEL_TRACE_WINDOW")) {
-                        fprintf(stderr,
-                                "OpenCitadel: resize event=%dx%d window=%dx%d "
-                                "drawable=%dx%d; notifying guest\n",
-                                event.window.data1, event.window.data2,
-                                window_width, window_height,
-                                drawable_width, drawable_height);
+                    if (window_width > 0 && window_height > 0 &&
+                        drawable_width > 0 && drawable_height > 0) {
+                        const bool drawable_changed =
+                            drawable_width != width ||
+                            drawable_height != height;
+                        if (drawable_changed) {
+                            touch_x = open_citadel::scale_position(
+                                touch_x, width, drawable_width);
+                            touch_y = open_citadel::scale_position(
+                                touch_y, height, drawable_height);
+                            width = drawable_width;
+                            height = drawable_height;
+                            native_post_init(env, activity, width, height);
+                        }
+
+                        const bool fullscreen =
+                            (SDL_GetWindowFlags(window) &
+                             SDL_WINDOW_FULLSCREEN) != 0;
+                        if (!fullscreen &&
+                            (saved_settings.width != window_width ||
+                             saved_settings.height != window_height)) {
+                            settings.width = window_width;
+                            settings.height = window_height;
+                            saved_settings.width = window_width;
+                            saved_settings.height = window_height;
+                            window_size_save_pending = true;
+                            window_size_save_deadline = SDL_GetTicks64() + 500;
+                        }
+
+                        if (getenv("OPEN_CITADEL_TRACE_WINDOW")) {
+                            fprintf(stderr,
+                                    "OpenCitadel: resize event=%dx%d "
+                                    "window=%dx%d drawable=%dx%d "
+                                    "guest=%dx%d updated=%d\n",
+                                    event.window.data1, event.window.data2,
+                                    window_width, window_height,
+                                    drawable_width, drawable_height,
+                                    width, height, drawable_changed ? 1 : 0);
+                        }
                     }
-                    native_post_init(env, activity,
-                                     event.window.data1, event.window.data2);
                 } else if ((event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
                             event.window.event == SDL_WINDOWEVENT_MINIMIZED) &&
                            !interrupted) {
                     if (mouse_touch_buttons) {
                         native_input(env, activity,
                                      android_input::kActionCancel,
-                                     mouse_x, mouse_y, 0, event_time);
+                                     (int)std::lround(touch_x),
+                                     (int)std::lround(touch_y), 0, event_time);
                         mouse_touch_buttons = 0;
                     }
                     if (keyboard_movement.clear())
@@ -1923,6 +1959,15 @@ int main(int argc, char **argv)
             default:
                 break;
             }
+        }
+
+        if (window_size_save_pending &&
+            SDL_GetTicks64() >= window_size_save_deadline) {
+            if (!save_user_settings(settings_path, saved_settings))
+                fprintf(stderr,
+                        "OpenCitadel: resized window size is active but "
+                        "could not be saved\n");
+            window_size_save_pending = false;
         }
 
         const long frames = open_citadel_java_frames_presented();
@@ -1972,6 +2017,10 @@ int main(int argc, char **argv)
 
     if (controller)
         SDL_GameControllerClose(controller);
+    if (window_size_save_pending &&
+        !save_user_settings(settings_path, saved_settings))
+        fprintf(stderr,
+                "OpenCitadel: final resized window size could not be saved\n");
     if (interrupted)
         native_interrupt(env, activity, JNI_FALSE);
 
