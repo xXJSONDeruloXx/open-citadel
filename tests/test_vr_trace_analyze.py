@@ -8,6 +8,8 @@ MODULE_PATH = ROOT / "tools" / "vr_trace_analyze.py"
 SPEC = importlib.util.spec_from_file_location("vr_trace_analyze", MODULE_PATH)
 MOD = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
+import sys
+sys.modules[SPEC.name] = MOD
 SPEC.loader.exec_module(MOD)
 
 
