@@ -6,6 +6,7 @@ on:
       - feat/html5-revival
     paths:
       - "tools/html5_commoncrawl_probe.py"
+      - "tools/html5_wayback_probe.py"
       - ".github/workflows/html5-commoncrawl-probe.yml"
   workflow_dispatch:
 
@@ -19,12 +20,14 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Probe 2013 Common Crawl indexes
+      - name: Fingerprint archived loader metadata
+        run: python3 tools/html5_wayback_probe.py
+      - name: Probe Common Crawl
         run: python3 tools/html5_commoncrawl_probe.py
-      - name: Print report
+      - name: Print Common Crawl report
         if: always()
         run: |
           if [ -f html5-commoncrawl-probe.json ]; then
