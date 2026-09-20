@@ -101,6 +101,24 @@ if(OPEN_CITADEL_BUILD_APP)
     endif()
 
     find_package(SDL2 CONFIG REQUIRED)
+    add_executable(open_citadel_gamepad_input_test gamepad_input_test.cpp)
+    target_include_directories(open_citadel_gamepad_input_test PRIVATE
+        ../../open_citadel
+    )
+    target_compile_features(open_citadel_gamepad_input_test PRIVATE cxx_std_17)
+    target_link_libraries(open_citadel_gamepad_input_test PRIVATE
+        $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
+    )
+    if(TARGET SDL2::SDL2)
+        add_custom_command(TARGET open_citadel_gamepad_input_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:SDL2::SDL2>"
+                "$<TARGET_FILE_DIR:open_citadel_gamepad_input_test>"
+            VERBATIM
+        )
+    endif()
+    add_test(NAME gamepad-input-mapping COMMAND open_citadel_gamepad_input_test)
+
     find_package(unofficial-angle CONFIG REQUIRED)
     find_package(mpg123 CONFIG REQUIRED)
     find_package(ZLIB REQUIRED)

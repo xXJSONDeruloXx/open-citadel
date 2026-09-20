@@ -245,23 +245,27 @@ still limit presentation to the monitor's refresh rate. With VSync off, the
 12-second normal (non-benchmark) run with both the game cap and VSync disabled
 logged 1,291–1,418 frame submissions/s. With the game cap disabled and VSync
 on, the same machine presented at 239.5–240.6 FPS on its 240 Hz display. A
-separate 20-second uncapped benchmark run on an RTX 4090 logged 1,265–1,475
-frame submissions/s. These are host swap submissions, not monitor scanout
-rates; results vary by hardware and scene load. Uncapped mode can
-significantly increase CPU/GPU use. The host reports average submission rate
+separate 20-second uncapped benchmark run on an RTX 4090 logged 1,264–1,395
+frame submissions/s in a fresh validation. Startup reported the game cap
+disabled and VSync off, so the host presentation path is not capped at 250 or
+299 FPS. These are host swap submissions, not monitor scanout or a separate
+guest benchmark counter; results vary by hardware and scene load. Uncapped mode
+can significantly increase CPU/GPU use. The host reports average submission rate
 and frame time once per second after the initial scene frames.
 
 The Windows host maps configurable movement keys (W/A/S/D by default) to a
 virtual left-stick axis, releases held movement on focus loss, and keeps mouse
 click-to-walk and drag-to-look input. WASD movement has been confirmed working
-in a live user test; rebinding and native gamepad input are not yet confirmed.
-Mouse sensitivity and vertical inversion can be configured at launch. Input
-tracing records SDL key events and the guest callback results for keyboard and
-virtual-stick delivery. SDL opens a native
+in a live user test; rebinding is not yet confirmed. The standard SDL gamepad
+button/axis mapping now has a virtual-controller regression test for left-stick
+X/Y and the A button, but physical-controller and in-game behavior are not yet
+confirmed. Mouse sensitivity and vertical inversion can be configured at
+launch. Input tracing records SDL key events and the guest callback results for
+keyboard and virtual-stick delivery. SDL opens a native
 44.1 kHz stereo device; the donor's `town_render` MP3 and a real donor WAV have
 both decoded in tests, and a no-`-nosound` game run reached the song callback.
 OpenSL ES is not implemented, so engine-side effects may still be silent.
-Gamepad behavior and a clean-machine/CI run remain open.
+Physical gamepad behavior and a clean-machine/CI run remain open.
 A CPack ZIP now packages the Windows host, runtime DLLs, donor importer, and
 dependency notices while excluding the proprietary game data. Linux and other
 native hosts are follow-on targets.
@@ -282,9 +286,10 @@ The Windows loader memory backend and ELF32 ABI parser have dedicated Win32
 tests, the GLES resolver has a 32-bit cdecl-to-stdcall regression test, and the
 SDL mixer has a dummy-device WAV/stream lifecycle test. The native application
 reaches a rendered scene and confirmed WASD movement; the remaining gates
-include movement-rebind and gamepad verification, OpenSL ES effects, settings
-polish, packaging, and automated Windows validation. The existing Linux x86 CI
-build remains a useful secondary platform check, not the current deliverable.
+include movement-rebind and physical gamepad verification, OpenSL ES effects,
+settings polish, packaging, and automated Windows validation. The existing
+Linux x86 CI build remains a useful secondary platform check, not the current
+deliverable.
 
 ## Milestones
 
@@ -305,6 +310,7 @@ build remains a useful secondary platform check, not the current deliverable.
 - [x] optional Windows uncapped FPS mode, verified against the 60 FPS default
 - [x] mouse click/drag translated to the game's touch controls
 - [x] Android input key/axis constants checked against ABI values
+- [x] SDL virtual-controller button and left-stick mapping regression test
 - [x] SDL audio output and Java MP3/WAV callback mixer
 - [ ] generic game profile separated from Katamari-specific host code
 - [x] manual end-to-end WASD movement verification

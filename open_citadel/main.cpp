@@ -39,6 +39,7 @@
 #include "crash.h"
 #include "gles2_probe.h"
 #include "android_input_codes.h"
+#include "gamepad_controls.h"
 #include "frame_pacing.h"
 #include "keyboard_controls.h"
 #include "mouse_look.h"
@@ -866,49 +867,6 @@ static int android_keycode(SDL_Keycode key)
     case SDLK_PERIOD: return android_input::kKeyPeriod;
     default: return 0;
     }
-}
-
-static int android_gamepad_key(SDL_GameControllerButton button)
-{
-    switch (button) {
-    case SDL_CONTROLLER_BUTTON_A: return android_input::kKeyButtonA;
-    case SDL_CONTROLLER_BUTTON_B: return android_input::kKeyButtonB;
-    case SDL_CONTROLLER_BUTTON_X: return android_input::kKeyButtonX;
-    case SDL_CONTROLLER_BUTTON_Y: return android_input::kKeyButtonY;
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return android_input::kKeyButtonL1;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return android_input::kKeyButtonR1;
-    case SDL_CONTROLLER_BUTTON_LEFTSTICK: return android_input::kKeyButtonThumbL;
-    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return android_input::kKeyButtonThumbR;
-    case SDL_CONTROLLER_BUTTON_START: return android_input::kKeyButtonStart;
-    case SDL_CONTROLLER_BUTTON_BACK: return android_input::kKeyButtonSelect;
-    case SDL_CONTROLLER_BUTTON_GUIDE: return android_input::kKeyButtonMode;
-    case SDL_CONTROLLER_BUTTON_DPAD_UP: return android_input::kKeyDpadUp;
-    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return android_input::kKeyDpadDown;
-    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return android_input::kKeyDpadLeft;
-    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return android_input::kKeyDpadRight;
-    default: return 0;
-    }
-}
-
-static int android_axis(SDL_GameControllerAxis axis)
-{
-    switch (axis) {
-    case SDL_CONTROLLER_AXIS_LEFTX: return android_input::kAxisX;
-    case SDL_CONTROLLER_AXIS_LEFTY: return android_input::kAxisY;
-    case SDL_CONTROLLER_AXIS_RIGHTX: return android_input::kAxisZ;
-    case SDL_CONTROLLER_AXIS_RIGHTY: return android_input::kAxisRz;
-    case SDL_CONTROLLER_AXIS_TRIGGERLEFT: return android_input::kAxisLtrigger;
-    case SDL_CONTROLLER_AXIS_TRIGGERRIGHT: return android_input::kAxisRtrigger;
-    default: return -1;
-    }
-}
-
-static float android_axis_value(SDL_GameControllerAxis axis, Sint16 raw)
-{
-    if (axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT ||
-        axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)
-        return std::clamp((float)raw / 32767.0f, 0.0f, 1.0f);
-    return std::clamp((float)raw / 32767.0f, -1.0f, 1.0f);
 }
 
 static int unicode_for_key(const SDL_KeyboardEvent &event)
@@ -1988,7 +1946,7 @@ int main(int argc, char **argv)
 
             case SDL_CONTROLLERBUTTONDOWN:
             case SDL_CONTROLLERBUTTONUP: {
-                const int code = android_gamepad_key(
+                const int code = open_citadel::gamepad_button_keycode(
                     (SDL_GameControllerButton)event.cbutton.button);
                 if (code)
                     native_joy_button(
@@ -2000,11 +1958,12 @@ int main(int argc, char **argv)
             case SDL_CONTROLLERAXISMOTION: {
                 const auto axis =
                     (SDL_GameControllerAxis)event.caxis.axis;
-                const int aaxis = android_axis(axis);
+                const int aaxis = open_citadel::gamepad_axis_id(axis);
                 if (aaxis >= 0)
                     native_joy_axis(env, activity, event.caxis.which,
                                     2, aaxis,
-                                    android_axis_value(axis, event.caxis.value),
+                                    open_citadel::normalize_gamepad_axis(
+                                        axis, event.caxis.value),
                                     event_time);
                 break;
             }
