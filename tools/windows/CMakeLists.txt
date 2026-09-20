@@ -6,6 +6,7 @@ if(POLICY CMP0207)
 endif()
 
 option(OPEN_CITADEL_BUILD_APP "Build the native Win32 Epic Citadel host" OFF)
+option(OPEN_CITADEL_BUILD_OPENXR_PROBE "Build the 32-bit OpenXR runtime capability probe" OFF)
 
 enable_testing()
 
@@ -79,6 +80,17 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     endif()
 
     add_test(NAME win32-stdcall-gl-bridge COMMAND open_citadel_win32_gl_thunk_test)
+endif()
+
+if(OPEN_CITADEL_BUILD_OPENXR_PROBE)
+    if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+        message(FATAL_ERROR "The initial OpenXR capability probe must be built as 32-bit Windows")
+    endif()
+
+    find_package(OpenXR CONFIG REQUIRED)
+    add_executable(open-citadel-openxr-probe openxr_probe.cpp)
+    target_compile_features(open-citadel-openxr-probe PRIVATE cxx_std_17)
+    target_link_libraries(open-citadel-openxr-probe PRIVATE OpenXR::openxr_loader)
 endif()
 
 if(OPEN_CITADEL_BUILD_APP)
