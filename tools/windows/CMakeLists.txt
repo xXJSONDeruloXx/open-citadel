@@ -6,7 +6,8 @@ if(POLICY CMP0207)
 endif()
 
 option(OPEN_CITADEL_BUILD_APP "Build the native Win32 Epic Citadel host" OFF)
-option(OPEN_CITADEL_BUILD_OPENXR_PROBE "Build the 32-bit OpenXR runtime capability probe" OFF)
+option(OPEN_CITADEL_BUILD_OPENXR_PROBE "Build the OpenXR runtime capability probe" OFF)
+option(OPEN_CITADEL_BUILD_OPENXR_BROKER "Build the x64 OpenXR D3D11 broker shell" OFF)
 
 enable_testing()
 
@@ -89,15 +90,36 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     add_test(NAME win32-stdcall-gl-bridge COMMAND open_citadel_win32_gl_thunk_test)
 endif()
 
-if(OPEN_CITADEL_BUILD_OPENXR_PROBE)
+if(OPEN_CITADEL_BUILD_OPENXR_PROBE OR OPEN_CITADEL_BUILD_OPENXR_BROKER)
     if(NOT WIN32)
-        message(FATAL_ERROR "The OpenXR capability probe currently targets Windows")
+        message(FATAL_ERROR "Open Citadel OpenXR tools currently target Windows")
     endif()
-
     find_package(OpenXR CONFIG REQUIRED)
+endif()
+
+if(OPEN_CITADEL_BUILD_OPENXR_PROBE)
     add_executable(open-citadel-openxr-probe openxr_probe.cpp)
     target_compile_features(open-citadel-openxr-probe PRIVATE cxx_std_17)
     target_link_libraries(open-citadel-openxr-probe PRIVATE OpenXR::openxr_loader)
+endif()
+
+if(OPEN_CITADEL_BUILD_OPENXR_BROKER)
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "The OpenXR broker shell is intentionally x64")
+    endif()
+    add_executable(open-citadel-openxr-broker openxr_broker.cpp)
+    target_compile_features(open-citadel-openxr-broker PRIVATE cxx_std_20)
+    target_compile_definitions(open-citadel-openxr-broker PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        XR_USE_PLATFORM_WIN32
+        XR_USE_GRAPHICS_API_D3D11
+    )
+    target_link_libraries(open-citadel-openxr-broker PRIVATE
+        OpenXR::openxr_loader
+        d3d11
+        dxgi
+    )
 endif()
 
 if(OPEN_CITADEL_BUILD_APP)
