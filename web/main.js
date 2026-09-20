@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/GLTFLoader.js';
 
-const ROOT='https://raw.githubusercontent.com/Phyronnaz/DAG_Compression/master/assets/EpicCitadel/glTF/';
-const MODEL=ROOT+'EpicCitadel.gltf';
+const MODEL='https://raw.githubusercontent.com/gwihlidal/svc-mesh/master/data/EpicCitadel.glb';
 const canvas=document.querySelector('#view'),status=document.querySelector('#status');
 const progress=document.querySelector('#progress'),bar=progress.querySelector('i'),enter=document.querySelector('#enter'),touch=document.querySelector('#touch');
 
