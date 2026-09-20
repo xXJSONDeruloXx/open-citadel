@@ -34,6 +34,7 @@
 #include "crash.h"
 #include "gles2_probe.h"
 #include "android_input_codes.h"
+#include "keyboard_controls.h"
 
 extern "C" void android_egl_init(SDL_Window *window, SDL_GLContext gl);
 
@@ -91,6 +92,19 @@ static int env_int(const char *name, int fallback)
     long parsed = strtol(value, &end, 10);
     return end && !*end && parsed > 0 && parsed <= INT_MAX
         ? (int)parsed : fallback;
+}
+
+static float env_float(const char *name, float fallback,
+                       float minimum, float maximum)
+{
+    const char *value = getenv(name);
+    if (!value || !*value)
+        return fallback;
+    char *end = nullptr;
+    const float parsed = strtof(value, &end);
+    if (end == value || !end || *end || !std::isfinite(parsed))
+        return fallback;
+    return std::clamp(parsed, minimum, maximum);
 }
 
 static bool env_bool(const char *name, bool fallback)
@@ -359,7 +373,9 @@ int main(int argc, char **argv)
                 "the matching path beside the executable.\n"
                 "OPEN_CITADEL_GAME_DIR may also select the data directory.\n"
                 "OPEN_CITADEL_WIDTH/HEIGHT choose the window size; "
-                "OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.\n");
+                "OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.\n"
+                "OPEN_CITADEL_MOUSE_SENSITIVITY scales drag-look; "
+                "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look.\n");
         if (argc == 2)
             return 0;
         return 2;
@@ -412,6 +428,9 @@ int main(int argc, char **argv)
 
     int width = env_int("OPEN_CITADEL_WIDTH", 1280);
     int height = env_int("OPEN_CITADEL_HEIGHT", 720);
+    const float mouse_sensitivity = env_float(
+        "OPEN_CITADEL_MOUSE_SENSITIVITY", 1.0f, 0.1f, 4.0f);
+    const bool invert_mouse_y = env_bool("OPEN_CITADEL_INVERT_MOUSE_Y", false);
     SDL_GLContext gl = nullptr;
     SDL_Window *window = create_window(width, height, &gl);
     if (!window) {
@@ -436,6 +455,9 @@ int main(int argc, char **argv)
                 "flags=0x%x\n",
                 (window_flags & SDL_WINDOW_INPUT_FOCUS) != 0,
                 (void *)SDL_GetKeyboardFocus(), (void *)window, window_flags);
+        fprintf(stderr,
+                "OpenCitadel: mouse sensitivity=%.2f invert-y=%d\n",
+                mouse_sensitivity, invert_mouse_y ? 1 : 0);
     }
     load_gles2_funcs();
     android_egl_init(window, gl);
@@ -590,6 +612,8 @@ int main(int argc, char **argv)
     Uint32 mouse_touch_buttons = 0;
     int mouse_x = width / 2;
     int mouse_y = height / 2;
+    float touch_x = (float)mouse_x;
+    float touch_y = (float)mouse_y;
 
     SDL_GameController *controller = nullptr;
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
@@ -602,6 +626,22 @@ int main(int argc, char **argv)
             }
         }
     }
+
+    open_citadel::KeyboardMovementState keyboard_movement;
+    constexpr jint kKeyboardControllerId = 0x40000000;
+    constexpr jint kAndroidJoystickDeviceType = 2;
+    const auto send_keyboard_movement = [&](jlong timestamp) {
+        const open_citadel::MovementAxes axes = keyboard_movement.axes();
+        native_joy_axis(env, activity, kKeyboardControllerId,
+                        kAndroidJoystickDeviceType, android_input::kAxisX,
+                        axes.x, timestamp);
+        native_joy_axis(env, activity, kKeyboardControllerId,
+                        kAndroidJoystickDeviceType, android_input::kAxisY,
+                        axes.y, timestamp);
+        if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+            fprintf(stderr, "OpenCitadel: WASD virtual stick x=%.2f y=%.2f\n",
+                    axes.x, axes.y);
+    };
 
     while (running && !open_citadel_java_shutdown_requested()) {
         SDL_Event event;
@@ -627,22 +667,39 @@ int main(int argc, char **argv)
                     else
                         mouse_touch_buttons &= ~button_mask;
 
-                    if (!was_active && mouse_touch_buttons)
+                    if (!was_active && mouse_touch_buttons) {
+                        touch_x = (float)mouse_x;
+                        touch_y = (float)mouse_y;
                         native_input(env, activity, android_input::kActionDown,
                                      mouse_x, mouse_y, 0, event_time);
-                    else if (was_active && !mouse_touch_buttons)
+                    } else if (was_active && !mouse_touch_buttons) {
                         native_input(env, activity, android_input::kActionUp,
-                                     mouse_x, mouse_y, 0, event_time);
+                                     (int)std::lround(touch_x),
+                                     (int)std::lround(touch_y), 0, event_time);
+                    }
                 }
                 break;
             }
             case SDL_MOUSEMOTION:
-                mouse_x = event.motion.x;
-                mouse_y = event.motion.y;
-                if (mouse_touch_buttons)
+                if (mouse_touch_buttons) {
+                    const int delta_x = event.motion.x - mouse_x;
+                    const int delta_y = event.motion.y - mouse_y;
+                    touch_x = std::clamp(
+                        touch_x + delta_x * mouse_sensitivity,
+                        0.0f, (float)width - 1.0f);
+                    touch_y = std::clamp(
+                        touch_y + delta_y * mouse_sensitivity *
+                            (invert_mouse_y ? -1.0f : 1.0f),
+                        0.0f, (float)height - 1.0f);
+                    mouse_x = event.motion.x;
+                    mouse_y = event.motion.y;
                     native_input(env, activity, android_input::kActionMove,
-                                 event.motion.x,
-                                 event.motion.y, 0, event_time);
+                                 (int)std::lround(touch_x),
+                                 (int)std::lround(touch_y), 0, event_time);
+                } else {
+                    mouse_x = event.motion.x;
+                    mouse_y = event.motion.y;
+                }
                 break;
             case SDL_FINGERDOWN:
             case SDL_FINGERUP:
@@ -695,11 +752,13 @@ int main(int argc, char **argv)
                 if (key == SDLK_F1) {
                     if (key_down && !event.key.repeat) {
                         const char *controls =
-                            "Left-click to tap. Hold and drag either mouse "
-                            "button to swipe and look around. Escape sends "
-                            "Back to the game. Set OPEN_CITADEL_WIDTH and "
+                            "W/A/S/D move. Click the ground to walk and "
+                            "drag with the mouse to look around. Escape "
+                            "sends Back to the game. Set OPEN_CITADEL_WIDTH and "
                             "OPEN_CITADEL_HEIGHT before launch for windowed "
-                            "size; OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.";
+                            "size; OPEN_CITADEL_FULLSCREEN=1 starts fullscreen. "
+                            "OPEN_CITADEL_MOUSE_SENSITIVITY and "
+                            "OPEN_CITADEL_INVERT_MOUSE_Y tune mouse-look.";
                         SDL_ShowSimpleMessageBox(
                             SDL_MESSAGEBOX_INFORMATION,
                             "Epic Citadel controls", controls, window);
@@ -708,6 +767,13 @@ int main(int argc, char **argv)
                 }
                 if (event.key.repeat)
                     break;
+                open_citadel::MovementKey movement_key;
+                if (open_citadel::movement_key_from_keycode(
+                        (int)key, &movement_key)) {
+                    if (keyboard_movement.set(movement_key, key_down))
+                        send_keyboard_movement(event_time);
+                    break;
+                }
                 const int code = android_keycode(key);
                 if (code)
                     native_keyboard(env, activity, 0,
@@ -783,6 +849,8 @@ int main(int argc, char **argv)
                                      mouse_x, mouse_y, 0, event_time);
                         mouse_touch_buttons = 0;
                     }
+                    if (keyboard_movement.clear())
+                        send_keyboard_movement(event_time);
                     alt_enter_toggled = false;
                     native_interrupt(env, activity, JNI_TRUE);
                     interrupted = true;

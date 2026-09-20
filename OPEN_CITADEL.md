@@ -200,13 +200,12 @@ successfully. The Windows window is fixed-size after startup because live UE3
 viewport resizing currently leaves the scene partially black; F11/Alt+Enter
 display a notice instead of switching modes.
 
-The five local CTest checks currently cover host memory, ELF32 ABI, Android
-input constants, guest `wchar_t`, and the Win32 GLES stdcall bridge. They pass
-on the development machine. Keyboard event translation and host shortcuts are
-present in code, but physical key delivery was not confirmed during bring-up;
-WASD/mouse-look bindings, gamepad behavior, and rebindable settings are not
-verified. Audio playback, a user-facing settings layer, packaging, and a clean
-machine/CI run remain open. Linux and other native hosts are follow-on targets.
+The Windows host maps W/A/S/D to a virtual left-stick axis, releases held
+movement on focus loss, and keeps mouse click-to-walk and drag-to-look input.
+Mouse sensitivity and vertical inversion can be configured at launch. These
+new keyboard paths still need live end-to-end confirmation; gamepad behavior,
+rebindable/persisted settings, audio playback, packaging, and a clean-machine/CI
+run remain open. Linux and other native hosts are follow-on targets.
 
 The validation sequence is:
 
@@ -245,11 +244,11 @@ platform check, not the current deliverable.
 - [x] mouse click/drag translated to the game's touch controls
 - [x] Android input key/axis constants checked against ABI values
 - [ ] generic game profile separated from Katamari-specific host code
-- [ ] manual end-to-end keyboard delivery; WASD/mouse-look controls
+- [ ] manual end-to-end keyboard delivery
 - [ ] native gamepad behavior and rebindable input settings
 - [ ] OpenSL ES compatibility
-- [ ] live viewport resizing/fullscreen switching, sensitivity, and persisted
-      quality-of-life settings
+- [ ] live viewport resizing/fullscreen switching and persisted quality-of-life
+      settings
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately
 - [ ] ARMHF CI build

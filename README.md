@@ -26,11 +26,12 @@ NVIDIA GeForce RTX 4090 through ANGLE. The bring-up has verified:
 - GLES through ANGLE, with 292 shaders and programs compiled/linked
 - ATITC fallback using the texture caches shipped in the donor
 - visible 3D scene rendering; mouse click/drag reaches the game's touch UI
-- five Win32 ABI, input-constant, and guest-width tests
+- six Win32 ABI, input, and guest-width tests
 
 This is a working bring-up, not a finished port. The game still starts without
-sound, and keyboard/gamepad behavior, user-facing graphics/input settings, and
-a distributable installer need further work.
+sound; the new WASD-to-virtual-stick path and gamepad behavior still need live
+verification, and user-facing settings and a distributable installer need
+further work.
 
 See [OPEN_CITADEL.md](OPEN_CITADEL.md) for detailed donor-format notes,
 architecture, reverse-engineering findings, and the milestone tracker.
@@ -66,7 +67,16 @@ in that default location, or pass its path explicitly:
 .\build\windows-app-win32\Release\open-citadel.exe .\gamedata\epic-citadel-1.07
 ```
 
-Clicking either mouse button taps; holding and dragging swipes/looks around.
+Clicking the ground walks to that destination. Holding and dragging either
+mouse button looks around; W/A/S/D send a virtual movement-stick input. Mouse
+sensitivity defaults to `1.0` (accepted range `0.1`–`4.0`), and vertical
+look can be inverted. Set either option before launch:
+
+```powershell
+$env:OPEN_CITADEL_MOUSE_SENSITIVITY = '1.5'
+$env:OPEN_CITADEL_INVERT_MOUSE_Y = '1'
+```
+
 On Windows, choose a windowed render size before launch; the window is fixed
 after startup because live UE3 viewport resizing is not reliable yet:
 
@@ -79,11 +89,11 @@ $env:OPEN_CITADEL_HEIGHT = '1080'
 For borderless desktop fullscreen, set `$env:OPEN_CITADEL_FULLSCREEN = '1'`
 before launching. Fullscreen at the desktop's 3440×1440 size and windowed
 1920×1080 startup have both rendered successfully. F11 and Alt+Enter currently
-report that live mode changes are unavailable; F1 and Escape handlers are
-implemented, but native keyboard delivery still needs manual verification.
-WASD movement, rebindable controls, and user-facing settings remain future
-work. VSync is on by default and can be disabled with
-`OPEN_CITADEL_VSYNC=0`.
+report that live mode changes are unavailable. F1 and Escape handlers are
+implemented; WASD movement is wired through the guest joystick callback but
+still needs live end-to-end verification. Rebindable controls and a user-facing,
+persisted settings panel remain future work. VSync is on by default and can be
+disabled with `OPEN_CITADEL_VSYNC=0`.
 
 ## Donor policy
 
