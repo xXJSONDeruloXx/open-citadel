@@ -94,11 +94,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
       - name: Install Android SDK/NDK packages
         run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          command -v sdkmanager
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager             "platforms;android-34"             "build-tools;34.0.0"             "ndk;26.3.11579264"             "cmake;3.22.1"
+          sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
@@ -158,8 +163,8 @@ jobs:
           rc=$?
           set -e
           echo "$output"
-          test "$rc" -eq 2
-          grep -F "usage:" <<<"$output"
+          test "$rc" -eq 1
+          grep -F "no imported Epic Citadel 1.07 data found" <<<"$output"
       - name: Stage portable i386 runtime
         run: |
           set -eux
