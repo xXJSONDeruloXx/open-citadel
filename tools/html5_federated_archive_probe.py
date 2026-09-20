@@ -11,7 +11,7 @@ TARGETS=(
 )
 UA="Open-Citadel-Federated-Archive-Probe/1.0"
 
-def get(url,timeout=35):
+def get(url,timeout=8):
     req=urllib.request.Request(url,headers={"User-Agent":UA,"Accept":"*/*"})
     with urllib.request.urlopen(req,timeout=timeout) as r:
         return r.status,r.geturl(),dict(r.headers),r.read()
@@ -24,7 +24,7 @@ def probe_arquivo(url):
     out=[]
     for ep in endpoints:
       try:
-        st,final,h,b=get(ep)
+        st,final,h,b=get(ep,8)
         out.append({"endpoint":ep,"status":st,"final":final,"bytes":len(b),"body":b[:20000].decode("utf-8","replace")})
       except Exception as e:
         out.append({"endpoint":ep,"error":f"{type(e).__name__}: {e}"})
@@ -61,7 +61,7 @@ def probe_internet_archive_catalog():
       ]
       ep="https://archive.org/advancedsearch.php?"+urllib.parse.urlencode(params)
       try:
-        st,final,h,b=get(ep,45)
+        st,final,h,b=get(ep,10)
         obj=json.loads(b.decode("utf-8","replace"))
         docs=obj.get("response",{}).get("docs",[])
         out[q]=docs
