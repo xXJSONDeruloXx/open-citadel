@@ -2,11 +2,30 @@
   "name": "open-citadel",
   "version-string": "0.1.0",
   "dependencies": [
-    { "name": "angle", "platform": "windows" },
-    { "name": "dirent", "platform": "windows" },
-    { "name": "pthreads", "platform": "windows" },
-    { "name": "sdl2", "platform": "windows" },
-    { "name": "mpg123", "platform": "windows" },
+    {
+      "name": "angle",
+      "platform": "windows"
+    },
+    {
+      "name": "dirent",
+      "platform": "windows"
+    },
+    {
+      "name": "pthreads",
+      "platform": "windows"
+    },
+    {
+      "name": "sdl2",
+      "platform": "windows"
+    },
+    {
+      "name": "mpg123",
+      "platform": "windows"
+    },
+    {
+      "name": "openxr-loader",
+      "platform": "windows"
+    },
     "zlib"
   ]
 }
