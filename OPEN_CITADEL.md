@@ -193,6 +193,12 @@ handling, GLES calling-convention bridge, and packaged ATITC decoding. At
 1280x720, the live scene has rendered with the original cooked assets and
 shaders. Mouse clicks and held drags reach the game's touch UI and camera.
 VSync defaults on, with `OPEN_CITADEL_VSYNC=0` as an override.
+Windowed resolution is selected at launch with `OPEN_CITADEL_WIDTH` and
+`OPEN_CITADEL_HEIGHT`; `OPEN_CITADEL_FULLSCREEN=1` starts borderless desktop
+fullscreen. Both a 1920x1080 window and 3440x1440 fullscreen launch rendered
+successfully. The Windows window is fixed-size after startup because live UE3
+viewport resizing currently leaves the scene partially black; F11/Alt+Enter
+display a notice instead of switching modes.
 
 The five local CTest checks currently cover host memory, ELF32 ABI, Android
 input constants, guest `wchar_t`, and the Win32 GLES stdcall bridge. They pass
@@ -235,13 +241,15 @@ platform check, not the current deliverable.
 - [x] UE3 opens `EpicCitadel.xxx` and reaches rendered frames
 - [x] first GLES2 shader compile/draw and ATITC fallback
 - [x] default game-data discovery and explicit path overrides
+- [x] launch-time window resolution and borderless fullscreen
 - [x] mouse click/drag translated to the game's touch controls
 - [x] Android input key/axis constants checked against ABI values
 - [ ] generic game profile separated from Katamari-specific host code
 - [ ] manual end-to-end keyboard delivery; WASD/mouse-look controls
 - [ ] native gamepad behavior and rebindable input settings
 - [ ] OpenSL ES compatibility
-- [ ] window/resolution/sensitivity and persisted quality-of-life settings
+- [ ] live viewport resizing/fullscreen switching, sensitivity, and persisted
+      quality-of-life settings
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately
 - [ ] ARMHF CI build

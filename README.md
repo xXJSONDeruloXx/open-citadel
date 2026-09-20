@@ -67,10 +67,23 @@ in that default location, or pass its path explicitly:
 ```
 
 Clicking either mouse button taps; holding and dragging swipes/looks around.
-F1 help, F11/Alt+Enter fullscreen, and Escape-to-Back handlers are implemented,
-but keyboard delivery has not yet been validated on this host. WASD movement,
-rebindable controls, and user-facing settings remain future work. VSync is on
-by default and can be disabled with `OPEN_CITADEL_VSYNC=0`.
+On Windows, choose a windowed render size before launch; the window is fixed
+after startup because live UE3 viewport resizing is not reliable yet:
+
+```powershell
+$env:OPEN_CITADEL_WIDTH = '1920'
+$env:OPEN_CITADEL_HEIGHT = '1080'
+.\build\windows-app-win32\Release\open-citadel.exe
+```
+
+For borderless desktop fullscreen, set `$env:OPEN_CITADEL_FULLSCREEN = '1'`
+before launching. Fullscreen at the desktop's 3440×1440 size and windowed
+1920×1080 startup have both rendered successfully. F11 and Alt+Enter currently
+report that live mode changes are unavailable; F1 and Escape handlers are
+implemented, but native keyboard delivery still needs manual verification.
+WASD movement, rebindable controls, and user-facing settings remain future
+work. VSync is on by default and can be disabled with
+`OPEN_CITADEL_VSYNC=0`.
 
 ## Donor policy
 

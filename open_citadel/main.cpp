@@ -161,7 +161,15 @@ static SDL_Window *create_window(int width, int height, SDL_GLContext *out_gl)
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+    Uint32 flags = SDL_WINDOW_OPENGL;
+#if !defined(_WIN32)
+    flags |= SDL_WINDOW_RESIZABLE;
+#else
+    /* UE3 keeps its startup viewport dimensions; changing the SDL surface
+     * after initialization currently leaves the guest rendering letterboxed. */
+#endif
+    if (env_bool("OPEN_CITADEL_FULLSCREEN", false))
+        flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     if (getenv("OPEN_CITADEL_HIDDEN"))
         flags |= SDL_WINDOW_HIDDEN;
 
@@ -182,6 +190,18 @@ static SDL_Window *create_window(int width, int height, SDL_GLContext *out_gl)
 
 static void toggle_fullscreen(SDL_Window *window)
 {
+#if defined(_WIN32)
+    static bool already_notified = false;
+    if (already_notified)
+        return;
+    already_notified = true;
+    SDL_ShowSimpleMessageBox(
+        SDL_MESSAGEBOX_INFORMATION, "Epic Citadel display mode",
+        "The Windows build selects resolution and fullscreen at startup. "
+        "Set OPEN_CITADEL_WIDTH and OPEN_CITADEL_HEIGHT for windowed size, "
+        "or OPEN_CITADEL_FULLSCREEN=1 for fullscreen. Live mode changes "
+        "are not available yet.", window);
+#else
     const bool fullscreen =
         (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
     if (getenv("OPEN_CITADEL_TRACE_INPUT"))
@@ -191,6 +211,7 @@ static void toggle_fullscreen(SDL_Window *window)
                                 SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
         fprintf(stderr, "OpenCitadel: fullscreen toggle failed: %s\n",
                 SDL_GetError());
+#endif
 }
 
 template <typename T>
@@ -336,7 +357,9 @@ int main(int argc, char **argv)
         fprintf(stderr,
                 "If omitted, searches ./gamedata/epic-citadel-1.07 and "
                 "the matching path beside the executable.\n"
-                "OPEN_CITADEL_GAME_DIR may also select the data directory.\n");
+                "OPEN_CITADEL_GAME_DIR may also select the data directory.\n"
+                "OPEN_CITADEL_WIDTH/HEIGHT choose the window size; "
+                "OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.\n");
         if (argc == 2)
             return 0;
         return 2;
@@ -387,8 +410,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    const int width = env_int("OPEN_CITADEL_WIDTH", 1280);
-    const int height = env_int("OPEN_CITADEL_HEIGHT", 720);
+    int width = env_int("OPEN_CITADEL_WIDTH", 1280);
+    int height = env_int("OPEN_CITADEL_HEIGHT", 720);
     SDL_GLContext gl = nullptr;
     SDL_Window *window = create_window(width, height, &gl);
     if (!window) {
@@ -396,6 +419,11 @@ int main(int argc, char **argv)
                 SDL_GetError());
         SDL_Quit();
         return 1;
+    }
+    if (env_bool("OPEN_CITADEL_FULLSCREEN", false)) {
+        SDL_GL_GetDrawableSize(window, &width, &height);
+        fprintf(stderr, "OpenCitadel: fullscreen render size=%dx%d\n",
+                width, height);
     }
 
     if (SDL_GL_SetSwapInterval(env_bool("OPEN_CITADEL_VSYNC", true) ? 1 : 0) != 0)
@@ -669,8 +697,9 @@ int main(int argc, char **argv)
                         const char *controls =
                             "Left-click to tap. Hold and drag either mouse "
                             "button to swipe and look around. Escape sends "
-                            "Back to the game. F11 or Alt+Enter toggles "
-                            "fullscreen.";
+                            "Back to the game. Set OPEN_CITADEL_WIDTH and "
+                            "OPEN_CITADEL_HEIGHT before launch for windowed "
+                            "size; OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.";
                         SDL_ShowSimpleMessageBox(
                             SDL_MESSAGEBOX_INFORMATION,
                             "Epic Citadel controls", controls, window);
@@ -728,6 +757,21 @@ int main(int argc, char **argv)
 
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                    int drawable_width = 0;
+                    int drawable_height = 0;
+                    int window_width = 0;
+                    int window_height = 0;
+                    SDL_GetWindowSize(window, &window_width, &window_height);
+                    SDL_GL_GetDrawableSize(window, &drawable_width,
+                                           &drawable_height);
+                    if (getenv("OPEN_CITADEL_TRACE_WINDOW")) {
+                        fprintf(stderr,
+                                "OpenCitadel: resize event=%dx%d window=%dx%d "
+                                "drawable=%dx%d; notifying guest\n",
+                                event.window.data1, event.window.data2,
+                                window_width, window_height,
+                                drawable_width, drawable_height);
+                    }
                     native_post_init(env, activity,
                                      event.window.data1, event.window.data2);
                 } else if ((event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||

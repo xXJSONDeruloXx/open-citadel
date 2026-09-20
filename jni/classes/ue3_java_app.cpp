@@ -146,7 +146,7 @@ static void cb_start_video(JNIEnv *env, jobject activity, jobject,
                            jlong, jlong, jboolean)
 {
     /*
-     * Until Linux video presentation is wired, skipping must still obey the
+     * Until host video presentation is wired, skipping must still obey the
      * Android lifecycle contract. FAndroidFullScreenMovie sets
      * bIsMoviePlaying before calling Java and GameThreadWaitForMovie blocks
      * until Java reports completion through NativeCallback_MovieFinished().
