@@ -86,11 +86,48 @@ if(OPEN_CITADEL_BUILD_APP)
     find_package(PThreads4W CONFIG REQUIRED)
     find_path(DIRENT_INCLUDE_DIR NAMES dirent.h REQUIRED)
 
+    include(FetchContent)
+    if(POLICY CMP0135)
+        cmake_policy(SET CMP0135 NEW)
+    endif()
+    if(POLICY CMP0169)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    FetchContent_Declare(open_citadel_imgui
+        URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.tar.gz
+        URL_HASH SHA256=21d8a0a565e85dce943e375db00812c2f3f0ab21f3f0f7964e364a63422d7f99
+    )
+    FetchContent_GetProperties(open_citadel_imgui)
+    if(NOT open_citadel_imgui_POPULATED)
+        FetchContent_Populate(open_citadel_imgui)
+    endif()
+
+    add_library(open_citadel_imgui STATIC
+        ${open_citadel_imgui_SOURCE_DIR}/imgui.cpp
+        ${open_citadel_imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${open_citadel_imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${open_citadel_imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${open_citadel_imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+        ${open_citadel_imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+    )
+    target_include_directories(open_citadel_imgui PUBLIC
+        ${open_citadel_imgui_SOURCE_DIR}
+    )
+    target_compile_features(open_citadel_imgui PUBLIC cxx_std_17)
+    target_compile_definitions(open_citadel_imgui PRIVATE
+        IMGUI_IMPL_OPENGL_ES2
+    )
+    target_link_libraries(open_citadel_imgui PRIVATE
+        $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
+        unofficial::angle::libGLESv2
+    )
+
     add_executable(open-citadel
         ../../loader/host_memory.cpp
         ../../loader/so_util.cpp
         ../../loader/so_util_x86.cpp
         ../../open_citadel/crash_win32.cpp
+        ../../open_citadel/desktop_overlay.cpp
         ../../open_citadel/gles2_probe.cpp
         ../../open_citadel/io_util.cpp
         ../../open_citadel/main.cpp
@@ -159,6 +196,7 @@ if(OPEN_CITADEL_BUILD_APP)
         MPG123::libmpg123
         ZLIB::ZLIB
         PThreads4W::PThreads4W
+        open_citadel_imgui
         ws2_32
     )
 
@@ -208,6 +246,9 @@ if(OPEN_CITADEL_BUILD_APP)
     install(FILES
         "${CMAKE_SOURCE_DIR}/../../tools/open_citadel_import.py"
         DESTINATION .
+    )
+    install(FILES "${open_citadel_imgui_SOURCE_DIR}/LICENSE.txt"
+        DESTINATION licenses/imgui
     )
 
     set(_open_citadel_vcpkg_share

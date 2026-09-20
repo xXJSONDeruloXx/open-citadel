@@ -10,6 +10,9 @@
 #include "android/asset_manager.h"
 #include "citadel_audio.h"
 #include "trace.h"
+#if defined(_WIN32)
+#include "open_citadel/desktop_overlay.h"
+#endif
 
 extern "C" int open_citadel_file_descriptor_get(jobject object);
 
@@ -234,6 +237,9 @@ static jboolean cb_swap_buffers(JNIEnv *, jobject)
 {
     if (!g_window)
         return JNI_FALSE;
+#if defined(_WIN32)
+    open_citadel::desktop_overlay::render(g_window);
+#endif
     SDL_GL_SwapWindow(g_window);
     g_frames.fetch_add(1, std::memory_order_relaxed);
     return JNI_TRUE;

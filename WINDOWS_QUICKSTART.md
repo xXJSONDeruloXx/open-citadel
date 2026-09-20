@@ -19,21 +19,21 @@ your own Epic Citadel 1.07 XAPK.
    ```
 
 Click the ground to walk and drag with either mouse button to look around.
-W/A/S/D movement is confirmed working. F1 shows controls, and F2 opens desktop
-settings. Choose
-**Controls...** there to rebind movement keys; Escape cancels a rebind and
-**Reset to WASD** restores defaults. Escape outside key capture sends Back.
-Settings are saved under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
-Choose **Display...** in F2 to browse monitor-supported resolutions or toggle
-borderless fullscreen for the next launch. Custom width/height values can also
-be set with `OPEN_CITADEL_WIDTH` and `OPEN_CITADEL_HEIGHT` before launch.
+W/A/S/D movement is confirmed working. F1 shows controls, and F2 opens the
+in-game settings overlay. Its Game tab displays live FPS/frame time and
+controls mouse, VSync, and frame-cap settings. Use Controls to rebind movement
+keys; Escape cancels a rebind and **Reset movement keys to WASD** restores
+defaults. Display accepts custom width/height and fullscreen settings for the
+next launch. Shift+F2 opens the legacy native settings dialog. Settings are
+saved under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
 
-The game defaults to its 60 FPS cap. In F2, choose **Toggle next-launch FPS
-cap** and restart to uncap it, or set `OPEN_CITADEL_UNCAP_FPS=1` before
-launching. VSync is a separate setting; uncapped mode with VSync off can use
+The game defaults to its 60 FPS cap. In the Game tab, enable **Disable the
+game's 60 FPS cap next launch** and restart to uncap it, or set
+`OPEN_CITADEL_UNCAP_FPS=1` before launching. VSync is a separate setting;
+uncapped mode with VSync off can use
 substantially more CPU/GPU.
 For a benchmark run with both the game limit and VSync disabled, choose
-**Toggle uncapped benchmark (next launch)** in F2 or set
+**Uncapped benchmark mode next launch** in the Game tab or set
 `OPEN_CITADEL_UNCAPPED_BENCHMARK=1`. This preserves your saved VSync preference.
 
 The host runs as a 32-bit Windows process and supports 64-bit Windows. Keep the

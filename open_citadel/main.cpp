@@ -41,6 +41,9 @@
 #include "android_input_codes.h"
 #include "keyboard_controls.h"
 #include "settings.h"
+#if defined(_WIN32)
+#include "desktop_overlay.h"
+#endif
 
 extern "C" void android_egl_init(SDL_Window *window, SDL_GLContext gl);
 
@@ -949,7 +952,8 @@ int main(int argc, char **argv)
                 "If omitted, searches ./gamedata/epic-citadel-1.07 and "
                 "the matching path beside the executable.\n"
                 "OPEN_CITADEL_GAME_DIR may also select the data directory.\n"
-                "F1 shows controls; F2 opens desktop and movement settings.\n"
+                "F1 shows controls; F2 opens the settings overlay (Shift+F2 "
+                "opens fallback dialogs).\n"
                 "Preferences are stored in %%APPDATA%%\\OpenCitadel\\EpicCitadel "
                 "or OPEN_CITADEL_CONFIG.\n"
                 "OPEN_CITADEL_WIDTH/HEIGHT choose startup window size; "
@@ -1307,10 +1311,231 @@ int main(int argc, char **argv)
                     axes.x, axes.y, (int)x_result, (int)y_result);
     };
 
+#if defined(_WIN32)
+    std::uint64_t overlay_revision = 0;
+    std::string overlay_rebind_status;
+    bool overlay_text_input_active = false;
+    const auto sync_overlay_text_input = [&]() {
+        const bool should_start =
+            open_citadel::desktop_overlay::is_open();
+        if (should_start == overlay_text_input_active)
+            return;
+        if (should_start)
+            SDL_StartTextInput();
+        else
+            SDL_StopTextInput();
+        overlay_text_input_active = should_start;
+    };
+    const auto publish_overlay_snapshot = [&]() {
+        open_citadel::desktop_overlay::Snapshot snapshot;
+        snapshot.settings = settings;
+        snapshot.active_vsync = active_vsync;
+        snapshot.active_uncap_fps = active_uncap_fps;
+        snapshot.waiting_for_rebind = capture_movement_key;
+        snapshot.rebind_target = pending_movement_rebind;
+        snapshot.rebind_status = overlay_rebind_status;
+        snapshot.revision = overlay_revision;
+        open_citadel::desktop_overlay::publish_snapshot(snapshot);
+    };
+    const auto process_overlay_commands = [&]() {
+        using open_citadel::desktop_overlay::Command;
+        using open_citadel::desktop_overlay::CommandType;
+        bool general_settings_changed = false;
+        bool display_settings_changed = false;
+        Command command;
+        while (open_citadel::desktop_overlay::pop_command(&command)) {
+            switch (command.type) {
+            case CommandType::SetMouseSensitivity:
+                settings.mouse_sensitivity =
+                    std::clamp(command.value, 0.1f, 4.0f);
+                general_settings_changed = true;
+                break;
+            case CommandType::SetInvertMouseY:
+                settings.invert_mouse_y = command.enabled;
+                general_settings_changed = true;
+                break;
+            case CommandType::SetVsync:
+                settings.vsync = command.enabled;
+                active_vsync = settings.vsync &&
+                               !settings.uncapped_benchmark;
+                open_citadel::desktop_overlay::request_swap_interval(
+                    active_vsync);
+                general_settings_changed = true;
+                break;
+            case CommandType::SetUncapFps:
+                settings.uncap_fps = command.enabled;
+                general_settings_changed = true;
+                break;
+            case CommandType::SetUncappedBenchmark:
+                settings.uncapped_benchmark = command.enabled;
+                general_settings_changed = true;
+                break;
+            case CommandType::SetFullscreen:
+                settings.fullscreen = command.enabled;
+                display_settings_changed = true;
+                break;
+            case CommandType::SaveResolution:
+                if (command.width < 320 || command.width > 7680 ||
+                    command.height < 240 || command.height > 4320) {
+                    overlay_rebind_status =
+                        "Window size must be between 320x240 and 7680x4320.";
+                    ++overlay_revision;
+                } else {
+                    settings.width = command.width;
+                    settings.height = command.height;
+                    display_settings_changed = true;
+                    char message[128];
+                    std::snprintf(message, sizeof(message),
+                                  "Saved %d x %d for the next launch.",
+                                  settings.width, settings.height);
+                    overlay_rebind_status = message;
+                }
+                break;
+            case CommandType::BeginRebind:
+                pending_movement_rebind = command.movement_key;
+                capture_movement_key = true;
+                overlay_rebind_status =
+                    std::string("Press a key for ") +
+                    movement_key_label(pending_movement_rebind) +
+                    ". Escape cancels.";
+                ++overlay_revision;
+                break;
+            case CommandType::ResetMovement:
+                movement_bindings.reset();
+                copy_movement_bindings_to_settings(movement_bindings,
+                                                   &settings);
+                copy_movement_bindings_to_settings(movement_bindings,
+                                                   &saved_settings);
+                overlay_rebind_status = "Movement keys reset to WASD.";
+                ++overlay_revision;
+                if (!save_user_settings(settings_path, saved_settings))
+                    fprintf(stderr,
+                            "OpenCitadel: movement keys are active but "
+                            "were not saved\n");
+                break;
+            }
+        }
+
+        if (general_settings_changed) {
+            saved_settings.vsync = settings.vsync;
+            saved_settings.uncap_fps = settings.uncap_fps;
+            saved_settings.uncapped_benchmark =
+                settings.uncapped_benchmark;
+            saved_settings.mouse_sensitivity = settings.mouse_sensitivity;
+            saved_settings.invert_mouse_y = settings.invert_mouse_y;
+            ++overlay_revision;
+            if (!save_user_settings(settings_path, saved_settings))
+                fprintf(stderr,
+                        "OpenCitadel: settings are active but were not saved\n");
+        }
+        if (display_settings_changed) {
+            saved_settings.width = settings.width;
+            saved_settings.height = settings.height;
+            saved_settings.fullscreen = settings.fullscreen;
+            ++overlay_revision;
+            if (!save_user_settings(settings_path, saved_settings))
+                fprintf(stderr,
+                        "OpenCitadel: display settings are active but "
+                        "were not saved\n");
+        }
+    };
+#endif
+
     while (running && !open_citadel_java_shutdown_requested()) {
+#if defined(_WIN32)
+        process_overlay_commands();
+        sync_overlay_text_input();
+        publish_overlay_snapshot();
+#endif
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             const jlong event_time = (jlong)event.common.timestamp;
+#if defined(_WIN32)
+            if (open_citadel::desktop_overlay::is_open()) {
+                const bool key_down = event.type == SDL_KEYDOWN;
+                const bool key_up = event.type == SDL_KEYUP;
+                const SDL_Keycode key = key_down || key_up
+                    ? event.key.keysym.sym : SDLK_UNKNOWN;
+                if (key_down && !event.key.repeat && key == SDLK_F2) {
+                    if (capture_movement_key) {
+                        capture_movement_key = false;
+                        overlay_rebind_status = "Key binding cancelled.";
+                        ++overlay_revision;
+                    }
+                    open_citadel::desktop_overlay::set_open(false);
+                    sync_overlay_text_input();
+                    continue;
+                }
+                if (key_down && !event.key.repeat && key == SDLK_ESCAPE) {
+                    suppress_escape_keyup = true;
+                    if (capture_movement_key) {
+                        capture_movement_key = false;
+                        overlay_rebind_status = "Key binding cancelled.";
+                        ++overlay_revision;
+                    } else {
+                        open_citadel::desktop_overlay::set_open(false);
+                    }
+                    sync_overlay_text_input();
+                    continue;
+                }
+                if (key_up && key == SDLK_ESCAPE && suppress_escape_keyup) {
+                    suppress_escape_keyup = false;
+                    continue;
+                }
+                if (capture_movement_key && (key_down || key_up)) {
+                    if (!key_down || event.key.repeat)
+                        continue;
+                    if (event.key.keysym.mod &
+                        (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) {
+                        overlay_rebind_status =
+                            "Key combinations are not supported; press one key.";
+                        ++overlay_revision;
+                        continue;
+                    }
+                    if (reserved_movement_key(key)) {
+                        overlay_rebind_status =
+                            "That key is reserved by the host.";
+                        ++overlay_revision;
+                        continue;
+                    }
+                    if (!movement_bindings.set(
+                            pending_movement_rebind, static_cast<int>(key))) {
+                        overlay_rebind_status =
+                            "That key is already assigned to another direction.";
+                        ++overlay_revision;
+                        continue;
+                    }
+
+                    capture_movement_key = false;
+                    copy_movement_bindings_to_settings(movement_bindings,
+                                                       &settings);
+                    copy_movement_bindings_to_settings(movement_bindings,
+                                                       &saved_settings);
+                    const std::string rebound_key = movement_key_name(
+                        movement_bindings, pending_movement_rebind);
+                    overlay_rebind_status =
+                        std::string("Bound ") +
+                        movement_key_label(pending_movement_rebind) +
+                        " to " + rebound_key + ".";
+                    ++overlay_revision;
+                    if (!save_user_settings(settings_path, saved_settings))
+                        fprintf(stderr,
+                                "OpenCitadel: movement keys are active but "
+                                "were not saved\n");
+                    continue;
+                }
+
+                open_citadel::desktop_overlay::push_event(event);
+                if (event.type == SDL_QUIT) {
+                    running = false;
+                    continue;
+                }
+                if (event.type != SDL_WINDOWEVENT &&
+                    event.type != SDL_CONTROLLERDEVICEADDED &&
+                    event.type != SDL_CONTROLLERDEVICEREMOVED)
+                    continue;
+            }
+#endif
             switch (event.type) {
             case SDL_QUIT:
                 running = false;
@@ -1399,6 +1624,10 @@ int main(int argc, char **argv)
                     if (key == SDLK_ESCAPE) {
                         capture_movement_key = false;
                         suppress_escape_keyup = true;
+#if defined(_WIN32)
+                        overlay_rebind_status = "Key binding cancelled.";
+                        ++overlay_revision;
+#endif
                         SDL_ShowSimpleMessageBox(
                             SDL_MESSAGEBOX_INFORMATION,
                             "Epic Citadel controls", "Key binding cancelled.",
@@ -1441,6 +1670,13 @@ int main(int argc, char **argv)
                                            &settings, &saved_settings);
                     const std::string rebound_key = movement_key_name(
                         movement_bindings, pending_movement_rebind);
+#if defined(_WIN32)
+                    overlay_rebind_status =
+                        std::string("Bound ") +
+                        movement_key_label(pending_movement_rebind) +
+                        " to " + rebound_key + ".";
+                    ++overlay_revision;
+#endif
                     fprintf(stderr, "OpenCitadel: rebound movement key to %s\n",
                             rebound_key.c_str());
                     SDL_ShowSimpleMessageBox(
@@ -1455,6 +1691,8 @@ int main(int argc, char **argv)
                         suppress_escape_keyup = false;
                         break;
                     }
+                    if (event.key.repeat)
+                        break;
                     suppress_escape_keyup = false;
                 }
 
@@ -1497,7 +1735,9 @@ int main(int argc, char **argv)
                                 open_citadel::MovementKey::Right) +
                             " move. Click the ground to walk and "
                             "drag with the mouse to look around. F2 opens "
-                            "settings; Escape sends Back to the game. Window "
+                            "desktop settings; Shift+F2 opens the legacy "
+                            "settings dialog; Escape closes the overlay. "
+                            "Window "
                             "size and fullscreen apply after restarting.\n\n"
                             "Settings file: " +
                             (settings_path.empty()
@@ -1522,12 +1762,25 @@ int main(int argc, char **argv)
                         }
                         if (keyboard_movement.clear())
                             send_keyboard_movement(event_time);
+#if defined(_WIN32)
+                        if (event.key.keysym.mod & KMOD_SHIFT) {
+#endif
                         const bool rebind_requested = show_settings_dialog(
                             window, settings_path, &settings, &saved_settings,
                             &movement_bindings, &pending_movement_rebind,
                             &active_vsync);
+#if defined(_WIN32)
+                        ++overlay_revision;
+#endif
                         SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
                         if (rebind_requested) {
+#if defined(_WIN32)
+                            overlay_rebind_status =
+                                std::string("Press a key for ") +
+                                movement_key_label(pending_movement_rebind) +
+                                ". Escape cancels.";
+                            ++overlay_revision;
+#endif
                             char prompt[160];
                             std::snprintf(
                                 prompt, sizeof(prompt),
@@ -1540,6 +1793,23 @@ int main(int argc, char **argv)
                             SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
                             capture_movement_key = true;
                         }
+#if defined(_WIN32)
+                        } else {
+                            open_citadel::desktop_overlay::set_open(true);
+                            int pointer_x = 0;
+                            int pointer_y = 0;
+                            SDL_GetMouseState(&pointer_x, &pointer_y);
+                            SDL_Event pointer_event{};
+                            pointer_event.type = SDL_MOUSEMOTION;
+                            pointer_event.motion.windowID =
+                                SDL_GetWindowID(window);
+                            pointer_event.motion.x = pointer_x;
+                            pointer_event.motion.y = pointer_y;
+                            open_citadel::desktop_overlay::push_event(
+                                pointer_event);
+                            sync_overlay_text_input();
+                        }
+#endif
                     }
                     break;
                 }
@@ -1705,6 +1975,11 @@ int main(int argc, char **argv)
     if (interrupted)
         native_interrupt(env, activity, JNI_FALSE);
 
+#if defined(_WIN32)
+    if (overlay_text_input_active)
+        SDL_StopTextInput();
+#endif
+
     fprintf(stderr,
             "OpenCitadel: cleanup frames=%ld draws=%ld textures=%ld atc=%ld "
             "shaders=%d/%d programs=%d/%d\n",
@@ -1716,6 +1991,9 @@ int main(int argc, char **argv)
 
     open_citadel::audio::shutdown();
     SDL_GL_MakeCurrent(window, gl);
+#if defined(_WIN32)
+    open_citadel::desktop_overlay::shutdown();
+#endif
     SDL_GL_DeleteContext(gl);
     SDL_DestroyWindow(window);
     SDL_Quit();

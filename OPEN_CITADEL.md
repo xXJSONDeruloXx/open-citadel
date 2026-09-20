@@ -206,12 +206,13 @@ switching modes. A Windows settings file is created under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width, height, fullscreen,
 VSync, the FPS cap, benchmark mode, mouse sensitivity, vertical inversion, and
 movement keys are persistent; `OPEN_CITADEL_CONFIG` can select another file.
-F2 opens a native options dialog for live mouse-look and VSync changes; it can
-also toggle the FPS cap and uncapped-benchmark mode for the next launch. Benchmark mode
-starts UE3 with `-benchmark` and forces VSync off without changing the saved
-VSync preference. Its Display submenu browses monitor modes,
-saves windowed width/height, and toggles borderless fullscreen for the next
-launch; custom sizes remain available through the environment variables.
+F2 opens the in-game Dear ImGui settings overlay. Its Game tab shows live
+frame-rate/frame-time readings and controls mouse-look, live VSync, and
+next-launch FPS/benchmark modes. Controls can rebind movement keys or reset to
+WASD. Display accepts arbitrary window width/height and a fullscreen preference
+for the next launch. Benchmark mode starts UE3 with `-benchmark` and forces
+VSync off without changing the saved VSync preference. Shift+F2 retains the
+native options dialogs as a fallback.
 Display-mode, FPS-cap, and benchmark-mode edits take effect after restarting,
 and matching environment variables override the saved values. Set
 `OPEN_CITADEL_UNCAPPED_BENCHMARK=1` to select benchmark mode from the command
@@ -284,7 +285,8 @@ build remains a useful secondary platform check, not the current deliverable.
 - [ ] movement-key rebind verification
 - [ ] native gamepad behavior
 - [ ] OpenSL ES compatibility
-- [x] persistent Windows display, mouse, movement-key, and FPS-cap settings with F2 UI
+- [x] persistent Windows settings, custom display sizes, and live performance overlay
+- [ ] live visual/input validation of the in-game ImGui overlay
 - [x] optional uncapped benchmark mode with VSync disabled for measurement
 - [ ] live viewport resizing/fullscreen switching
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
