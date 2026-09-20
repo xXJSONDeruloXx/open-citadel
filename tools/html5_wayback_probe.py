@@ -1,73 +1,43 @@
 #!/usr/bin/env python3
-"""Inspect archived Epic Citadel HTML5 assets, normalizing archived gzip bodies."""
+"""Extract deterministic metadata from the archived Epic Citadel Emscripten loaders."""
 from __future__ import annotations
+import gzip, hashlib, re, urllib.parse, urllib.request
 
-import gzip
-import re
-import urllib.parse
-import urllib.request
+ROOT="http://cdn.unrealengine.com/html5-4c0913f/"
+STAMP={"UDKGame_Data.js":"20130503182945","UDKGame-Browser-Shipping.js":"20130503182946"}
+UA="Open-Citadel-Archive-Probe/10.0"
 
-ROOT = "http://www.unrealengine.com/html5/"
-STAMP = "20130504031131"
-FILES = ("UDKGame_Data.js", "UDKGame-Browser-Shipping.js")
-UA = "Open-Citadel-Archive-Probe/9.0"
+def fetch(name):
+    original=ROOT+name
+    url=f"https://web.archive.org/web/{STAMP[name]}id_/"+urllib.parse.quote(original,safe=":/?=&%")
+    req=urllib.request.Request(url,headers={"User-Agent":UA})
+    with urllib.request.urlopen(req,timeout=180) as r: body=r.read()
+    if body.startswith(b"\x1f\x8b"): body=gzip.decompress(body)
+    return body
 
+def hits(text, patterns):
+    for label,pat in patterns:
+        vals=re.findall(pat,text,re.I|re.S)
+        print(label, vals[:50])
 
-def archived(original: str) -> str:
-    return f"https://web.archive.org/web/{STAMP}id_/" + urllib.parse.quote(
-        original, safe=":/?=&%"
-    )
-
-
-def fetch(original: str, timeout: int = 120):
-    req = urllib.request.Request(archived(original), headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read()
-        final = resp.geturl()
-        headers = dict(resp.headers)
-    compressed = body.startswith(b"\x1f\x8b")
-    if compressed:
-        body = gzip.decompress(body)
-    return final, headers, body, compressed
-
-
-def refs(text: str) -> list[str]:
-    found: set[str] = set()
-    patterns = (
-        r"""[A-Za-z0-9_./:+?=&%-]+\.(?:data|mem|bin|pak|js|json|ogg|mp3|wav)(?:\?[^"'\s;)]*)?""",
-        r"""https?://[^"'\s)]+""",
-        r"""(?:packageName|remote_package_size|memoryInitializer|filePackagePrefixURL)[^;\n]{0,500}""",
-        r"""(?:GET|open)\s*\([^\n]{0,500}""",
-    )
-    for pattern in patterns:
-        found.update(re.findall(pattern, text, re.I))
-    return sorted(found)
-
-
-def main() -> int:
-    final, _, landing, gz = fetch(ROOT)
-    html = landing.decode("utf-8", errors="replace")
-    print(f"LANDING bytes={len(landing):,} gzip={gz} final={final}")
-    for filename in FILES:
-        original = urllib.parse.urljoin(ROOT, filename)
-        final, headers, body, gz = fetch(original)
-        text = body.decode("utf-8", errors="replace")
-        print(
-            f"\nFILE {filename} raw-gzip={gz} decoded-bytes={len(body):,} "
-            f"type={headers.get('Content-Type')} final={final}"
-        )
-        for ref in refs(text)[:500]:
-            print("REF", ref)
-        if filename == "UDKGame_Data.js":
-            literals = sorted(set(
-                value for _, value in re.findall(r"""(['"])(.*?)(?<!\\)\1""", text, re.S)
-                if 2 < len(value) < 500
-            ))
-            for value in literals[:500]:
-                print("LITERAL", value.replace("\n", "\\n"))
-
+def main():
+    data=fetch("UDKGame_Data.js")
+    text=data.decode("utf-8","replace")
+    print("DATA_JS bytes",len(data),"sha256",hashlib.sha256(data).hexdigest())
+    hits(text,[
+      ("packageName",r"""packageName\s*=\s*['"]([^'"]+)"""),
+      ("remote_package_size",r"""remote_package_size\s*=\s*(\d+)"""),
+      ("package_size",r"""package(?:Data)?Size\s*=\s*(\d+)"""),
+      ("all_sizes",r"""\b(\d{7,12})\b"""),
+      ("data_urls",r"""[^'"\s]{0,100}UDKGame_Data\.data[^'"\s]{0,100}"""),
+    ])
+    engine=fetch("UDKGame-Browser-Shipping.js")
+    et=engine.decode("utf-8","replace")
+    print("ENGINE_JS bytes",len(engine),"sha256",hashlib.sha256(engine).hexdigest())
+    hits(et,[
+      ("TOTAL_MEMORY",r"""TOTAL_MEMORY\s*[=:]\s*(\d+)"""),
+      ("mem_refs",r"""[^'"\s]{0,100}UDKGame-Browser-Shipping\.js\.mem[^'"\s]{0,100}"""),
+      ("memory_init_calls",r"""MemoryInitializer\([^\n]{0,300}"""),
+    ])
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__=="__main__": raise SystemExit(main())
