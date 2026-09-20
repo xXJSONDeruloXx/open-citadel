@@ -1,0 +1,25 @@
+name: Search historical Common Crawl for Citadel
+
+on:
+  push:
+    branches:
+      - feat/html5-revival
+    paths:
+      - "tools/html5_cc_history_probe.py"
+      - ".github/workflows/html5-cc-history.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: html5-cc-history
+  cancel-in-progress: true
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/html5_cc_history_probe.py
