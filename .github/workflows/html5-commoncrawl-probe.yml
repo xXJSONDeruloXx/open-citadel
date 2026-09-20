@@ -26,10 +26,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fingerprint archived loader metadata
         run: python3 tools/html5_wayback_probe.py
-      - name: Probe Common Crawl
-        run: python3 tools/html5_commoncrawl_probe.py
       - name: Probe independent archives
         run: python3 tools/html5_federated_archive_probe.py
+      - name: Probe Common Crawl
+        run: python3 tools/html5_commoncrawl_probe.py
       - name: Print Common Crawl report
         if: always()
         run: |
