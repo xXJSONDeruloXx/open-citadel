@@ -83,8 +83,8 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 
 if(OPEN_CITADEL_BUILD_OPENXR_PROBE)
-    if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-        message(FATAL_ERROR "The initial OpenXR capability probe must be built as 32-bit Windows")
+    if(NOT WIN32)
+        message(FATAL_ERROR "The OpenXR capability probe currently targets Windows")
     endif()
 
     find_package(OpenXR CONFIG REQUIRED)
