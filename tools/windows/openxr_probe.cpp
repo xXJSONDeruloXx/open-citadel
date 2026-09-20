@@ -1,6 +1,4 @@
-#define XR_USE_PLATFORM_WIN32
 #include <openxr/openxr.h>
-#include <openxr/openxr_platform.h>
 
 #include <cstdint>
 #include <cstdio>
