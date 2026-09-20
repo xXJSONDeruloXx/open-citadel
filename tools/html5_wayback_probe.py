@@ -31,13 +31,17 @@ def main():
       ("all_sizes",r"""\b(\d{7,12})\b"""),
       ("data_urls",r"""[^'"\s]{0,100}UDKGame_Data\.data[^'"\s]{0,100}"""),
     ])
-    engine=fetch("UDKGame-Browser-Shipping.js")
-    et=engine.decode("utf-8","replace")
-    print("ENGINE_JS bytes",len(engine),"sha256",hashlib.sha256(engine).hexdigest())
-    hits(et,[
-      ("TOTAL_MEMORY",r"""TOTAL_MEMORY\s*[=:]\s*(\d+)"""),
-      ("mem_refs",r"""[^'"\s]{0,100}UDKGame-Browser-Shipping\.js\.mem[^'"\s]{0,100}"""),
-      ("memory_init_calls",r"""MemoryInitializer\([^\n]{0,300}"""),
-    ])
+    try:
+        engine=fetch("UDKGame-Browser-Shipping.js")
+    except Exception as exc:
+        print("ENGINE_JS fetch_error", type(exc).__name__, str(exc))
+    else:
+        et=engine.decode("utf-8","replace")
+        print("ENGINE_JS bytes",len(engine),"sha256",hashlib.sha256(engine).hexdigest())
+        hits(et,[
+          ("TOTAL_MEMORY",r"""TOTAL_MEMORY\s*[=:]\s*(\d+)"""),
+          ("mem_refs",r"""[^'"\s]{0,100}UDKGame-Browser-Shipping\.js\.mem[^'"\s]{0,100}"""),
+          ("memory_init_calls",r"""MemoryInitializer\([^\n]{0,300}"""),
+        ])
     return 0
 if __name__=="__main__": raise SystemExit(main())
