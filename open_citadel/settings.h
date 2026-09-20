@@ -22,6 +22,17 @@ struct UserSettings {
     bool uncapped_benchmark = false;
     float mouse_sensitivity = 1.0f;
     bool invert_mouse_y = false;
+    bool vr_enabled = false;
+    float vr_world_scale = 1.0f;
+    float vr_render_scale = 1.0f;
+    float vr_near_clip_m = 0.05f;
+    float vr_far_clip_m = 500.0f;
+    float vr_snap_turn_degrees = 45.0f;
+    float vr_smooth_move_mps = 1.4f;
+    bool vr_smooth_turn = false;
+    bool vr_vignette = true;
+    bool vr_seated = false;
+    int vr_preferred_refresh_hz = 0;
     std::string move_forward = "w";
     std::string move_backward = "s";
     std::string move_left = "a";
@@ -151,6 +162,31 @@ inline void read_user_settings(std::istream &input, UserSettings *settings)
                                 &settings->mouse_sensitivity);
         } else if (key == "invert_mouse_y") {
             parse_settings_boolean(value, &settings->invert_mouse_y);
+        } else if (key == "vr_enabled") {
+            parse_settings_boolean(value, &settings->vr_enabled);
+        } else if (key == "vr_world_scale") {
+            parse_settings_float(value, 0.1f, 10.0f, &settings->vr_world_scale);
+        } else if (key == "vr_render_scale") {
+            parse_settings_float(value, 0.25f, 2.0f, &settings->vr_render_scale);
+        } else if (key == "vr_near_clip_m") {
+            parse_settings_float(value, 0.01f, 1.0f, &settings->vr_near_clip_m);
+        } else if (key == "vr_far_clip_m") {
+            parse_settings_float(value, 10.0f, 5000.0f, &settings->vr_far_clip_m);
+        } else if (key == "vr_snap_turn_degrees") {
+            parse_settings_float(value, 15.0f, 90.0f,
+                                 &settings->vr_snap_turn_degrees);
+        } else if (key == "vr_smooth_move_mps") {
+            parse_settings_float(value, 0.1f, 10.0f,
+                                 &settings->vr_smooth_move_mps);
+        } else if (key == "vr_smooth_turn") {
+            parse_settings_boolean(value, &settings->vr_smooth_turn);
+        } else if (key == "vr_vignette") {
+            parse_settings_boolean(value, &settings->vr_vignette);
+        } else if (key == "vr_seated") {
+            parse_settings_boolean(value, &settings->vr_seated);
+        } else if (key == "vr_preferred_refresh_hz") {
+            parse_settings_integer(value, 0, 240,
+                                   &settings->vr_preferred_refresh_hz);
         } else if (key == "move_forward") {
             parse_settings_key_name(value, &settings->move_forward);
         } else if (key == "move_backward") {
@@ -166,8 +202,8 @@ inline void read_user_settings(std::istream &input, UserSettings *settings)
 inline void write_user_settings(std::ostream &output,
                                 const UserSettings &settings)
 {
-    output << "# Open Citadel desktop settings. Environment variables override "
-              "these values.\n"
+    output << "# Open Citadel settings. Environment variables override these "
+              "values.\n"
            << "# Window dimensions and fullscreen mode apply after restart.\n"
            << "width=" << settings.width << '\n'
            << "height=" << settings.height << '\n'
@@ -180,6 +216,20 @@ inline void write_user_settings(std::ostream &output,
            << "mouse_sensitivity=" << std::fixed << std::setprecision(2)
            << settings.mouse_sensitivity << '\n'
            << "invert_mouse_y=" << (settings.invert_mouse_y ? "true" : "false")
+           << '\n'
+           << "# VR is opt-in. Refresh 0 means let the runtime choose.\n"
+           << "vr_enabled=" << (settings.vr_enabled ? "true" : "false") << '\n'
+           << "vr_world_scale=" << settings.vr_world_scale << '\n'
+           << "vr_render_scale=" << settings.vr_render_scale << '\n'
+           << "vr_near_clip_m=" << settings.vr_near_clip_m << '\n'
+           << "vr_far_clip_m=" << settings.vr_far_clip_m << '\n'
+           << "vr_snap_turn_degrees=" << settings.vr_snap_turn_degrees << '\n'
+           << "vr_smooth_move_mps=" << settings.vr_smooth_move_mps << '\n'
+           << "vr_smooth_turn=" << (settings.vr_smooth_turn ? "true" : "false")
+           << '\n'
+           << "vr_vignette=" << (settings.vr_vignette ? "true" : "false") << '\n'
+           << "vr_seated=" << (settings.vr_seated ? "true" : "false") << '\n'
+           << "vr_preferred_refresh_hz=" << settings.vr_preferred_refresh_hz
            << '\n'
            << "move_forward=" << settings.move_forward << '\n'
            << "move_backward=" << settings.move_backward << '\n'
