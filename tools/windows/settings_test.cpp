@@ -25,6 +25,17 @@ int main()
         "uncapped_benchmark=true\n"
         "mouse_sensitivity=9.0\n"
         "invert_mouse_y=true\n"
+        "vr_enabled=true\n"
+        "vr_world_scale=1.25\n"
+        "vr_render_scale=9.0\n"
+        "vr_near_clip_m=0.001\n"
+        "vr_far_clip_m=9000\n"
+        "vr_snap_turn_degrees=5\n"
+        "vr_smooth_move_mps=2.5\n"
+        "vr_smooth_turn=true\n"
+        "vr_vignette=false\n"
+        "vr_seated=true\n"
+        "vr_preferred_refresh_hz=500\n"
         "move_forward=Up\n"
         "move_backward=Down\n"
         "move_left=Left\n"
@@ -41,6 +52,17 @@ int main()
     CHECK(settings.uncapped_benchmark);
     CHECK(settings.mouse_sensitivity == 4.0f);
     CHECK(settings.invert_mouse_y);
+    CHECK(settings.vr_enabled);
+    CHECK(settings.vr_world_scale == 1.25f);
+    CHECK(settings.vr_render_scale == 2.0f);
+    CHECK(settings.vr_near_clip_m == 0.01f);
+    CHECK(settings.vr_far_clip_m == 5000.0f);
+    CHECK(settings.vr_snap_turn_degrees == 15.0f);
+    CHECK(settings.vr_smooth_move_mps == 2.5f);
+    CHECK(settings.vr_smooth_turn);
+    CHECK(!settings.vr_vignette);
+    CHECK(settings.vr_seated);
+    CHECK(settings.vr_preferred_refresh_hz == 240);
     CHECK(settings.move_forward == "Up");
     CHECK(settings.move_backward == "Down");
     CHECK(settings.move_left == "Left");
@@ -59,6 +81,17 @@ int main()
     CHECK(round_trip.uncapped_benchmark == settings.uncapped_benchmark);
     CHECK(round_trip.mouse_sensitivity == settings.mouse_sensitivity);
     CHECK(round_trip.invert_mouse_y == settings.invert_mouse_y);
+    CHECK(round_trip.vr_enabled == settings.vr_enabled);
+    CHECK(round_trip.vr_world_scale == settings.vr_world_scale);
+    CHECK(round_trip.vr_render_scale == settings.vr_render_scale);
+    CHECK(round_trip.vr_near_clip_m == settings.vr_near_clip_m);
+    CHECK(round_trip.vr_far_clip_m == settings.vr_far_clip_m);
+    CHECK(round_trip.vr_snap_turn_degrees == settings.vr_snap_turn_degrees);
+    CHECK(round_trip.vr_smooth_move_mps == settings.vr_smooth_move_mps);
+    CHECK(round_trip.vr_smooth_turn == settings.vr_smooth_turn);
+    CHECK(round_trip.vr_vignette == settings.vr_vignette);
+    CHECK(round_trip.vr_seated == settings.vr_seated);
+    CHECK(round_trip.vr_preferred_refresh_hz == settings.vr_preferred_refresh_hz);
     CHECK(round_trip.move_forward == settings.move_forward);
     CHECK(round_trip.move_backward == settings.move_backward);
     CHECK(round_trip.move_left == settings.move_left);
