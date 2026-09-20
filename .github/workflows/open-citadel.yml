@@ -34,9 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Python unit tests
-        run: python3 -m unittest -v tests/test_open_citadel_import.py
+        run: python3 -m unittest -v tests/test_open_citadel_import.py tests/test_vr_trace_analyze.py
       - name: Syntax check
-        run: python3 -m py_compile tools/open_citadel_import.py tests/test_open_citadel_import.py
+        run: python3 -m py_compile tools/open_citadel_import.py tools/vr_trace_analyze.py tests/test_open_citadel_import.py tests/test_vr_trace_analyze.py
 
   windows-host-memory:
     runs-on: windows-2022
