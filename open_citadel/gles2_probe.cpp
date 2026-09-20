@@ -11,6 +11,9 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
 #include <new>
 #include <string>
 #include <vector>
@@ -39,6 +42,103 @@ static std::atomic<long> g_draws{0};
 static std::atomic<long> g_textures{0};
 static std::atomic<long> g_atc_decoded{0};
 static std::atomic<long> g_compressed_passthrough{0};
+
+
+extern "C" long android_egl_frames(void);
+
+struct VrTraceConfig {
+    bool enabled = false;
+    bool matrices = false;
+    bool framebuffers = false;
+    long max_events = 5000;
+};
+
+static bool env_flag(const char *name)
+{
+    const char *value = std::getenv(name);
+    return value && *value && *value != '0';
+}
+
+static long env_positive_long(const char *name, long fallback)
+{
+    const char *value = std::getenv(name);
+    if (!value || !*value)
+        return fallback;
+    char *end = nullptr;
+    const long parsed = std::strtol(value, &end, 10);
+    if (!end || *end || parsed <= 0)
+        return fallback;
+    return std::min<long>(parsed, 1000000);
+}
+
+static const VrTraceConfig &vr_trace_config()
+{
+    static const VrTraceConfig config = [] {
+        VrTraceConfig value{};
+        value.enabled = env_flag("OPEN_CITADEL_VR_TRACE");
+        value.matrices = env_flag("OPEN_CITADEL_VR_TRACE_MATRICES");
+        value.framebuffers = env_flag("OPEN_CITADEL_VR_TRACE_FRAMEBUFFERS");
+        value.enabled = value.enabled || value.matrices || value.framebuffers;
+        value.max_events = env_positive_long(
+            "OPEN_CITADEL_VR_TRACE_MAX_EVENTS", value.max_events);
+        return value;
+    }();
+    return config;
+}
+
+static std::atomic<long> g_vr_trace_events{0};
+static GLuint g_vr_current_program = 0;
+static GLuint g_vr_current_framebuffer = 0;
+static GLint g_vr_viewport[4] = {0, 0, 0, 0};
+
+static void vr_trace(const char *kind, const char *format, ...)
+{
+    const VrTraceConfig &config = vr_trace_config();
+    if (!config.enabled)
+        return;
+
+    const long event = g_vr_trace_events.fetch_add(1, std::memory_order_relaxed);
+    if (event >= config.max_events)
+        return;
+
+    const long frame = android_egl_frames() + 1;
+    std::fprintf(stderr, "VRTRACE frame=%ld event=%ld kind=%s ",
+                 frame, event + 1, kind);
+    va_list args;
+    va_start(args, format);
+    std::vfprintf(stderr, format, args);
+    va_end(args);
+    std::fputc('\n', stderr);
+    std::fflush(stderr);
+}
+
+static void vr_trace_active_uniforms(GLuint program)
+{
+    const VrTraceConfig &config = vr_trace_config();
+    if (!config.matrices)
+        return;
+
+    GLint count = 0;
+    GLint max_length = 0;
+    glad_glGetProgramiv(program, GL_ACTIVE_UNIFORMS, &count);
+    glad_glGetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &max_length);
+    if (count <= 0 || max_length <= 1)
+        return;
+
+    std::vector<GLchar> name(static_cast<std::size_t>(max_length) + 1);
+    for (GLint index = 0; index < count; ++index) {
+        GLsizei length = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        glad_glGetActiveUniform(program, static_cast<GLuint>(index),
+                                max_length, &length, &size, &type, name.data());
+        name[std::max<GLsizei>(0, length)] = 0;
+        const GLint location = glad_glGetUniformLocation(program, name.data());
+        vr_trace("uniform",
+                 "program=%u index=%d location=%d type=0x%04x size=%d name=%s",
+                 program, index, location, type, size, name.data());
+    }
+}
 
 #if defined(_WIN32)
 static std::string windows_guest_extensions(const char *host_extensions)
@@ -133,16 +233,119 @@ extern "C" void open_citadel_glLinkProgram(GLuint program)
     glad_glGetProgramiv(program, GL_LINK_STATUS, &ok);
     if (ok) {
         ++g_programs_ok;
+        vr_trace("link", "program=%u ok=1", program);
+        vr_trace_active_uniforms(program);
     } else {
         ++g_programs_failed;
         report_shader_log(program, false);
     }
 }
 
+extern "C" GLint open_citadel_glGetUniformLocation(
+    GLuint program, const GLchar *name)
+{
+    const GLint location = glad_glGetUniformLocation(program, name);
+    if (vr_trace_config().matrices)
+        vr_trace("uniform-location", "program=%u location=%d name=%s",
+                 program, location, name ? name : "<null>");
+    return location;
+}
+
+extern "C" void open_citadel_glUseProgram(GLuint program)
+{
+    g_vr_current_program = program;
+    if (vr_trace_config().enabled)
+        vr_trace("program", "program=%u", program);
+    glad_glUseProgram(program);
+}
+
+extern "C" void open_citadel_glBindFramebuffer(GLenum target,
+                                                GLuint framebuffer)
+{
+    if (target == GL_FRAMEBUFFER)
+        g_vr_current_framebuffer = framebuffer;
+    if (vr_trace_config().framebuffers)
+        vr_trace("fbo-bind", "target=0x%04x framebuffer=%u",
+                 target, framebuffer);
+    glad_glBindFramebuffer(target, framebuffer);
+}
+
+extern "C" void open_citadel_glFramebufferTexture2D(
+    GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
+    GLint level)
+{
+    if (vr_trace_config().framebuffers)
+        vr_trace("fbo-texture",
+                 "fbo=%u target=0x%04x attachment=0x%04x textarget=0x%04x "
+                 "texture=%u level=%d",
+                 g_vr_current_framebuffer, target, attachment, textarget,
+                 texture, level);
+    glad_glFramebufferTexture2D(target, attachment, textarget, texture, level);
+}
+
+extern "C" void open_citadel_glViewport(
+    GLint x, GLint y, GLsizei width, GLsizei height)
+{
+    g_vr_viewport[0] = x;
+    g_vr_viewport[1] = y;
+    g_vr_viewport[2] = width;
+    g_vr_viewport[3] = height;
+    if (vr_trace_config().framebuffers)
+        vr_trace("viewport", "fbo=%u x=%d y=%d width=%d height=%d",
+                 g_vr_current_framebuffer, x, y, width, height);
+    glad_glViewport(x, y, width, height);
+}
+
+extern "C" void open_citadel_glScissor(
+    GLint x, GLint y, GLsizei width, GLsizei height)
+{
+    if (vr_trace_config().framebuffers)
+        vr_trace("scissor", "fbo=%u x=%d y=%d width=%d height=%d",
+                 g_vr_current_framebuffer, x, y, width, height);
+    glad_glScissor(x, y, width, height);
+}
+
+extern "C" void open_citadel_glClear(GLbitfield mask)
+{
+    if (vr_trace_config().framebuffers)
+        vr_trace("clear", "fbo=%u mask=0x%08x", g_vr_current_framebuffer, mask);
+    glad_glClear(mask);
+}
+
+extern "C" void open_citadel_glUniformMatrix4fv(
+    GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)
+{
+    if (vr_trace_config().matrices && value && count > 0) {
+        vr_trace(
+            "mat4",
+            "program=%u fbo=%u location=%d count=%d transpose=%u "
+            "viewport=%d,%d,%d,%d "
+            "m=[%.7g %.7g %.7g %.7g | %.7g %.7g %.7g %.7g | "
+            "%.7g %.7g %.7g %.7g | %.7g %.7g %.7g %.7g]",
+            g_vr_current_program, g_vr_current_framebuffer, location, count,
+            static_cast<unsigned>(transpose),
+            g_vr_viewport[0], g_vr_viewport[1],
+            g_vr_viewport[2], g_vr_viewport[3],
+            value[0], value[1], value[2], value[3],
+            value[4], value[5], value[6], value[7],
+            value[8], value[9], value[10], value[11],
+            value[12], value[13], value[14], value[15]);
+    }
+    glad_glUniformMatrix4fv(location, count, transpose, value);
+}
+
 extern "C" void open_citadel_glDrawArrays(GLenum mode, GLint first,
                                             GLsizei count)
 {
-    ++g_draws;
+    const long draw = ++g_draws;
+    if (vr_trace_config().enabled)
+        vr_trace("draw-arrays",
+                 "draw=%ld program=%u fbo=%u mode=0x%04x first=%d count=%d "
+                 "viewport=%d,%d,%d,%d",
+                 draw, g_vr_current_program, g_vr_current_framebuffer,
+                 mode, first, count,
+                 g_vr_viewport[0], g_vr_viewport[1],
+                 g_vr_viewport[2], g_vr_viewport[3]);
     glad_glDrawArrays(mode, first, count);
 }
 
@@ -150,7 +353,15 @@ extern "C" void open_citadel_glDrawElements(GLenum mode, GLsizei count,
                                               GLenum type,
                                               const void *indices)
 {
-    ++g_draws;
+    const long draw = ++g_draws;
+    if (vr_trace_config().enabled)
+        vr_trace("draw-elements",
+                 "draw=%ld program=%u fbo=%u mode=0x%04x count=%d type=0x%04x "
+                 "viewport=%d,%d,%d,%d",
+                 draw, g_vr_current_program, g_vr_current_framebuffer,
+                 mode, count, type,
+                 g_vr_viewport[0], g_vr_viewport[1],
+                 g_vr_viewport[2], g_vr_viewport[3]);
     glad_glDrawElements(mode, count, type, indices);
 }
 
@@ -274,6 +485,16 @@ DynLibFunction symtable_open_citadel_gles2_probe[] = {
 #endif
     THUNK_SPECIFIC("glCompileShader", open_citadel_glCompileShader),
     THUNK_SPECIFIC("glLinkProgram", open_citadel_glLinkProgram),
+    THUNK_SPECIFIC("glGetUniformLocation", open_citadel_glGetUniformLocation),
+    THUNK_SPECIFIC("glUseProgram", open_citadel_glUseProgram),
+    THUNK_SPECIFIC("glBindFramebuffer", open_citadel_glBindFramebuffer),
+    THUNK_SPECIFIC("glFramebufferTexture2D",
+                   open_citadel_glFramebufferTexture2D),
+    THUNK_SPECIFIC("glViewport", open_citadel_glViewport),
+    THUNK_SPECIFIC("glScissor", open_citadel_glScissor),
+    THUNK_SPECIFIC("glClear", open_citadel_glClear),
+    THUNK_SPECIFIC("glUniformMatrix4fv",
+                   open_citadel_glUniformMatrix4fv),
     THUNK_SPECIFIC("glDrawArrays", open_citadel_glDrawArrays),
     THUNK_SPECIFIC("glDrawElements", open_citadel_glDrawElements),
     THUNK_SPECIFIC("glTexImage2D", open_citadel_glTexImage2D),
