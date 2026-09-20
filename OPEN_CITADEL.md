@@ -207,7 +207,10 @@ keys are persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2
 opens a native options dialog for live mouse-look and VSync changes; its
 Controls dialog rebinds the four movement directions. Display-mode edits take
 effect after restarting, and matching environment variables override the saved
-values.
+values. The host reports average FPS and frame time once per second after the
+initial scene frames. A Windows 1280x720 sample stayed near 60 FPS with host
+VSync both enabled and disabled, so an additional UE3-side frame cap remains to
+be identified before the game can be uncapped.
 
 The Windows host maps configurable movement keys (W/A/S/D by default) to a
 virtual left-stick axis, releases held movement on focus loss, and keeps mouse

@@ -118,6 +118,8 @@ sends Back to the game. WASD movement is wired through the guest joystick
 callback but still needs live end-to-end verification. Rebindable movement
 controls are available from F2; gamepad behavior remains future work. VSync is
 on by default and can be changed with F2 or `OPEN_CITADEL_VSYNC=0`.
+The host reports average FPS and frame time to its console once per second,
+after the initial scene frames.
 
 Windows audio uses SDL output with mpg123 for MP3 music and SDL decoding for
 WAV effects. `LOADER_TRACE=1` prints audio-device and callback diagnostics.

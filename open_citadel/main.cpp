@@ -1015,6 +1015,8 @@ int main(int argc, char **argv)
     const long run_seconds = getenv("OPEN_CITADEL_RUN_SECONDS")
         ? atol(getenv("OPEN_CITADEL_RUN_SECONDS")) : 0;
     const Uint64 start = SDL_GetTicks64();
+    Uint64 fps_sample_start = 0;
+    long fps_sample_frames = -1;
     long last_reported = -1;
     bool running = true;
     bool interrupted = false;
@@ -1409,6 +1411,29 @@ int main(int argc, char **argv)
         }
 
         const long frames = open_citadel_java_frames_presented();
+        const Uint64 fps_now = SDL_GetTicks64();
+        if (fps_sample_frames < 0) {
+            if (frames >= 5) {
+                fps_sample_frames = frames;
+                fps_sample_start = fps_now;
+            }
+        } else if (fps_now - fps_sample_start >= 1000) {
+            const Uint64 fps_elapsed_ms = fps_now - fps_sample_start;
+            const long sample_frames = frames - fps_sample_frames;
+            const double fps = static_cast<double>(sample_frames) * 1000.0 /
+                               static_cast<double>(fps_elapsed_ms);
+            const double frame_time_ms = sample_frames > 0
+                ? static_cast<double>(fps_elapsed_ms) /
+                      static_cast<double>(sample_frames)
+                : 0.0;
+            fprintf(stderr,
+                    "OpenCitadel: fps=%.1f frametime=%.2fms vsync=%s "
+                    "size=%dx%d\n",
+                    fps, frame_time_ms, settings.vsync ? "on" : "off",
+                    width, height);
+            fps_sample_frames = frames;
+            fps_sample_start = fps_now;
+        }
         if (frames != last_reported && (frames <= 5 || frames % 60 == 0)) {
             fprintf(stderr,
                     "OpenCitadel: frames=%ld draws=%ld textures=%ld atc=%ld "
