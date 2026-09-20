@@ -101,9 +101,9 @@ The default is the game's 60 FPS cap; changing the option requires a restart.
 The saved setting can also be overridden with `OPEN_CITADEL_UNCAP_FPS=1`.
 VSync is independent:
 when enabled it still synchronizes presentation to the display, while uncapped
-mode with VSync off can use substantially more CPU/GPU. The uncapped mode was
-measured above 1,200 FPS at 1280x720 on an RTX 4090; actual rates depend on
-hardware and scene load.
+mode with VSync off can use substantially more CPU/GPU. A 20-second uncapped
+benchmark run on an RTX 4090 logged 1,265–1,475 frame submissions/s at
+1280x720; actual rates depend on hardware and scene load.
 For a fully uncapped benchmark, choose **Uncapped benchmark mode next launch**
 in the Game tab or set `OPEN_CITADEL_UNCAPPED_BENCHMARK=1`. This starts UE3 in
 benchmark mode, removes its 60 FPS limit, and forces VSync off for that run;

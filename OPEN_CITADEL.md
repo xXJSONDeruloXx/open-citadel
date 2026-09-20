@@ -224,10 +224,11 @@ line. VSync defaults on;
 `OPEN_CITADEL_VSYNC=0` disables it. The game defaults
 to its 60 FPS cap; set `OPEN_CITADEL_UNCAP_FPS=1` or use the F2 option to
 disable it. With VSync off, the 1280x720 Windows build measured about 59.6 FPS
-with the cap and 1,250–1,380 FPS uncapped on an RTX 4090. Rates vary by hardware
-and scene load, and uncapped mode can significantly increase CPU/GPU use. The
-host reports average FPS and frame time once per second after the initial
-scene frames.
+with the cap. A 20-second uncapped benchmark run on an RTX 4090 logged
+1,265–1,475 frame submissions/s. These are host swap submissions, not monitor
+scanout rates; results vary by hardware and scene load. Uncapped mode can
+significantly increase CPU/GPU use. The host reports average submission rate
+and frame time once per second after the initial scene frames.
 
 The Windows host maps configurable movement keys (W/A/S/D by default) to a
 virtual left-stick axis, releases held movement on focus loss, and keeps mouse
