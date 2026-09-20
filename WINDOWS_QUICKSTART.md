@@ -24,6 +24,9 @@ settings. Choose
 **Controls...** there to rebind movement keys; Escape cancels a rebind and
 **Reset to WASD** restores defaults. Escape outside key capture sends Back.
 Settings are saved under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
+Choose **Display...** in F2 to browse monitor-supported resolutions or toggle
+borderless fullscreen for the next launch. Custom width/height values can also
+be set with `OPEN_CITADEL_WIDTH` and `OPEN_CITADEL_HEIGHT` before launch.
 
 The game defaults to its 60 FPS cap. In F2, choose **Toggle next-launch FPS
 cap** and restart to uncap it, or set `OPEN_CITADEL_UNCAP_FPS=1` before

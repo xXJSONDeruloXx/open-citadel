@@ -87,6 +87,9 @@ live mouse-look sensitivity, vertical inversion, and VSync changes; those
 choices are saved. Select **Controls...** in that dialog to rebind Forward,
 Backward, Left, and Right; Escape cancels a rebind and Reset to WASD restores
 the defaults. Bindings persist in the same settings file.
+Choose **Display...** in F2 to browse monitor-supported resolutions or toggle
+borderless fullscreen for the next launch. Custom width/height values remain
+available through environment variables.
 `OPEN_CITADEL_CONFIG` can select a different settings file.
 
 On Windows, F2 also offers **Toggle next-launch FPS cap**. The default is the

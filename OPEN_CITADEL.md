@@ -207,9 +207,12 @@ switching modes. A Windows settings file is created under
 VSync, the FPS cap, mouse sensitivity, vertical inversion, and movement keys
 are persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2 opens a
 native options dialog for live mouse-look and VSync changes; it can also toggle
-the FPS cap for the next launch. Display-mode and FPS-cap edits take effect
-after restarting, and matching environment variables override the saved
-values. VSync defaults on; `OPEN_CITADEL_VSYNC=0` disables it. The game defaults
+the FPS cap for the next launch. Its Display submenu browses monitor modes,
+saves windowed width/height, and toggles borderless fullscreen for the next
+launch; custom sizes remain available through the environment variables.
+Display-mode and FPS-cap edits take effect after restarting, and matching
+environment variables override the saved values. VSync defaults on;
+`OPEN_CITADEL_VSYNC=0` disables it. The game defaults
 to its 60 FPS cap; set `OPEN_CITADEL_UNCAP_FPS=1` or use the F2 option to
 disable it. With VSync off, the 1280x720 Windows build measured about 59.6 FPS
 with the cap and 1,250–1,380 FPS uncapped on an RTX 4090. Rates vary by hardware

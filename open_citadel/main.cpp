@@ -6,10 +6,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <numeric>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -340,6 +343,186 @@ static bool show_controls_dialog(
     }
 }
 
+struct WindowResolution {
+    int width;
+    int height;
+};
+
+static bool show_resolution_dialog(
+    SDL_Window *window, open_citadel::UserSettings *settings)
+{
+    if (!window || !settings)
+        return false;
+
+    int display = SDL_GetWindowDisplayIndex(window);
+    if (display < 0)
+        display = 0;
+
+    std::vector<WindowResolution> resolutions;
+    const auto add_resolution = [&resolutions](int width, int height) {
+        if (width < 320 || width > 7680 || height < 240 || height > 4320)
+            return;
+        resolutions.push_back({width, height});
+    };
+
+    const int display_modes = SDL_GetNumDisplayModes(display);
+    for (int i = 0; i < display_modes; ++i) {
+        SDL_DisplayMode mode{};
+        if (SDL_GetDisplayMode(display, i, &mode) == 0)
+            add_resolution(mode.w, mode.h);
+    }
+    SDL_DisplayMode desktop_mode{};
+    if (SDL_GetDesktopDisplayMode(display, &desktop_mode) == 0)
+        add_resolution(desktop_mode.w, desktop_mode.h);
+    add_resolution(settings->width, settings->height);
+
+    std::sort(resolutions.begin(), resolutions.end(),
+              [](const WindowResolution &a, const WindowResolution &b) {
+                  const std::int64_t a_ratio =
+                      static_cast<std::int64_t>(a.width) * b.height;
+                  const std::int64_t b_ratio =
+                      static_cast<std::int64_t>(b.width) * a.height;
+                  if (a_ratio != b_ratio)
+                      return a_ratio < b_ratio;
+                  const std::int64_t a_area =
+                      static_cast<std::int64_t>(a.width) * a.height;
+                  const std::int64_t b_area =
+                      static_cast<std::int64_t>(b.width) * b.height;
+                  if (a_area != b_area)
+                      return a_area < b_area;
+                  return a.width < b.width;
+              });
+    resolutions.erase(
+        std::unique(resolutions.begin(), resolutions.end(),
+                    [](const WindowResolution &a, const WindowResolution &b) {
+                        return a.width == b.width && a.height == b.height;
+                    }),
+        resolutions.end());
+    if (resolutions.empty())
+        return false;
+
+    size_t selected = 0;
+    for (size_t i = 0; i < resolutions.size(); ++i) {
+        if (resolutions[i].width == settings->width &&
+            resolutions[i].height == settings->height) {
+            selected = i;
+            break;
+        }
+    }
+
+    const SDL_MessageBoxButtonData buttons[] = {
+        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Use this size"},
+        {0, 1, "Next"},
+        {0, 2, "Previous"},
+        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 3, "Cancel"},
+    };
+    for (;;) {
+        const WindowResolution &resolution = resolutions[selected];
+        const int divisor = std::gcd(resolution.width, resolution.height);
+        char message[512];
+        std::snprintf(
+            message, sizeof(message),
+            "Next-launch window size: %d x %d (%d:%d)\n"
+            "Size option %u of %u.\n\n"
+            "Next/Previous browse distinct sizes supported by this display. "
+            "Use this size to save it. Custom sizes can still be set with "
+            "OPEN_CITADEL_WIDTH and OPEN_CITADEL_HEIGHT.",
+            resolution.width, resolution.height,
+            resolution.width / divisor, resolution.height / divisor,
+            static_cast<unsigned>(selected + 1),
+            static_cast<unsigned>(resolutions.size()));
+        const SDL_MessageBoxData data = {
+            SDL_MESSAGEBOX_INFORMATION,
+            window,
+            "Epic Citadel window size",
+            message,
+            (int)(sizeof(buttons) / sizeof(buttons[0])),
+            buttons,
+            nullptr,
+        };
+        int pressed = 3;
+        if (SDL_ShowMessageBox(&data, &pressed) != 0) {
+            fprintf(stderr, "OpenCitadel: window-size dialog failed: %s\n",
+                    SDL_GetError());
+            return false;
+        }
+        switch (pressed) {
+        case 0:
+            settings->width = resolution.width;
+            settings->height = resolution.height;
+            return true;
+        case 1:
+            selected = (selected + 1) % resolutions.size();
+            break;
+        case 2:
+            selected = (selected + resolutions.size() - 1) % resolutions.size();
+            break;
+        default:
+            return false;
+        }
+    }
+}
+
+static void show_display_dialog(
+    SDL_Window *window, const std::filesystem::path &settings_path,
+    open_citadel::UserSettings *settings,
+    open_citadel::UserSettings *saved_settings)
+{
+    if (!window || !settings || !saved_settings)
+        return;
+
+    const SDL_MessageBoxButtonData buttons[] = {
+        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT |
+             SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Done"},
+        {0, 1, "Window size..."},
+        {0, 2, "Toggle fullscreen next launch"},
+    };
+    for (;;) {
+        char message[512];
+        std::snprintf(message, sizeof(message),
+                      "Next launch: %s, windowed size %d x %d.\n"
+                      "Choose a display option or Done.",
+                      settings->fullscreen ? "borderless fullscreen" :
+                                             "windowed",
+                      settings->width, settings->height);
+        const SDL_MessageBoxData data = {
+            SDL_MESSAGEBOX_INFORMATION,
+            window,
+            "Epic Citadel display settings",
+            message,
+            (int)(sizeof(buttons) / sizeof(buttons[0])),
+            buttons,
+            nullptr,
+        };
+        int pressed = 0;
+        if (SDL_ShowMessageBox(&data, &pressed) != 0) {
+            fprintf(stderr, "OpenCitadel: display dialog failed: %s\n",
+                    SDL_GetError());
+            return;
+        }
+
+        if (pressed == 1) {
+            if (show_resolution_dialog(window, settings)) {
+                saved_settings->width = settings->width;
+                saved_settings->height = settings->height;
+                if (!save_user_settings(settings_path, *saved_settings))
+                    fprintf(stderr,
+                            "OpenCitadel: display settings are active but "
+                            "were not saved\n");
+            }
+        } else if (pressed == 2) {
+            settings->fullscreen = !settings->fullscreen;
+            saved_settings->fullscreen = settings->fullscreen;
+            if (!save_user_settings(settings_path, *saved_settings))
+                fprintf(stderr,
+                        "OpenCitadel: display settings are active but "
+                        "were not saved\n");
+        } else {
+            return;
+        }
+    }
+}
+
 static bool show_settings_dialog(
     SDL_Window *window, const std::filesystem::path &settings_path,
     open_citadel::UserSettings *settings,
@@ -360,8 +543,9 @@ static bool show_settings_dialog(
         {0, 4, "Toggle VSync"},
         {0, 5, "Reset mouse"},
         {0, 6, "Controls..."},
+        {0, 7, "Display..."},
 #if defined(_WIN32)
-        {0, 7, "Toggle next-launch FPS cap"},
+        {0, 8, "Toggle next-launch FPS cap"},
 #endif
     };
 
@@ -385,7 +569,8 @@ static bool show_settings_dialog(
             "Movement: %s / %s / %s / %s\n\n"
             "Window: %d x %d (%s)\n"
             "Frame cap, window size, and fullscreen apply after restarting.\n"
-            "Settings file: %s\nChoose Controls... to rebind movement.",
+            "Settings file: %s\nChoose Controls... or Display... "
+            "for more options.",
             settings->mouse_sensitivity,
             settings->invert_mouse_y ? "inverted" : "normal",
             settings->vsync ? "on" : "off",
@@ -448,8 +633,12 @@ static bool show_settings_dialog(
                                      pending_rebind))
                 return true;
             continue;
-#if defined(_WIN32)
         case 7:
+            show_display_dialog(window, settings_path, settings,
+                                saved_settings);
+            continue;
+#if defined(_WIN32)
+        case 8:
             settings->uncap_fps = !settings->uncap_fps;
             changed = true;
             break;
