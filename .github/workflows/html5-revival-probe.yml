@@ -1,0 +1,28 @@
+name: Epic Citadel HTML5 archive probe
+
+on:
+  push:
+    branches:
+      - feat/html5-revival
+    paths:
+      - ".github/workflows/html5-revival-probe.yml"
+      - "tools/html5_wayback_probe.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe archived HTML5 deployment
+        run: python3 tools/html5_wayback_probe.py
+      - name: Show recovered manifest
+        if: always()
+        run: |
+          if [ -f html5-probe.json ]; then
+            python3 -m json.tool html5-probe.json
+          fi
