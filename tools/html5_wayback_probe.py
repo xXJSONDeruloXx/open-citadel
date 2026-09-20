@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Probe public web archives for Epic Citadel's 2013 HTML5 deployment.
+"""Recover metadata for Epic Citadel's original 2013 HTML5 deployment.
 
-This tool does not store or redistribute the recovered game. It inventories
-captures and fetches only the archived landing HTML to discover deployment
-filenames needed for a donor-style local recovery workflow.
+No Epic game data is committed. The probe asks the Internet Archive for the
+closest historical landing page, then checks the resources referenced by it.
 """
 from __future__ import annotations
 
-import collections
 import json
 import re
 import sys
@@ -15,48 +13,40 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-CDX = "https://web.archive.org/cdx/search/cdx"
-WAYBACK = "https://web.archive.org/web/{timestamp}id_/{original}"
+AVAILABLE = "https://archive.org/wayback/available"
+WAYBACK_RAW = "https://web.archive.org/web/{timestamp}id_/{original}"
 TARGETS = (
     "http://www.unrealengine.com/html5/",
     "http://unrealengine.com/html5/",
     "http://epic.gm/html5/",
 )
 OUT = Path("html5-probe.json")
-UA = "Open-Citadel-Archive-Probe/1.0 (+https://github.com/xXJSONDeruloXx/open-citadel)"
+UA = "Open-Citadel-Archive-Probe/2.0 (+https://github.com/xXJSONDeruloXx/open-citadel)"
 
 
-def get(url: str, timeout: int = 60) -> bytes:
+def get(url: str, timeout: int = 20) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout) as response:
         return response.read()
 
 
-def cdx(url: str, wildcard: bool) -> list[dict[str, str]]:
-    query_url = url + ("*" if wildcard else "")
-    params = [
-        ("url", query_url),
-        ("output", "json"),
-        ("fl", "timestamp,original,mimetype,statuscode,digest,length"),
-        ("filter", "statuscode:200"),
-        ("from", "2013"),
-        ("to", "2016"),
-        ("collapse", "urlkey"),
-        ("limit", "10000"),
-    ]
-    raw = get(CDX + "?" + urllib.parse.urlencode(params)).decode("utf-8")
-    rows = json.loads(raw)
-    if not rows:
-        return []
-    header, *data = rows
-    return [dict(zip(header, row)) for row in data]
+def closest(url: str, timestamp: str = "20130503") -> dict[str, str] | None:
+    params = urllib.parse.urlencode({"url": url, "timestamp": timestamp})
+    data = json.loads(get(f"{AVAILABLE}?{params}").decode("utf-8"))
+    snap = data.get("archived_snapshots", {}).get("closest")
+    if not snap or not snap.get("available"):
+        return None
+    return {
+        "timestamp": snap["timestamp"],
+        "url": snap["url"],
+        "status": snap.get("status", ""),
+        "original": url,
+    }
 
 
-def archived_url(row: dict[str, str]) -> str:
-    return WAYBACK.format(
-        timestamp=row["timestamp"],
-        original=urllib.parse.quote(row["original"], safe=":/?=&%"),
-    )
+def raw_snapshot(snapshot: dict[str, str]) -> str:
+    original = urllib.parse.quote(snapshot["original"], safe=":/?=&%")
+    return WAYBACK_RAW.format(timestamp=snapshot["timestamp"], original=original)
 
 
 def extract_refs(html: str) -> list[str]:
@@ -70,63 +60,49 @@ def extract_refs(html: str) -> list[str]:
 
 
 def main() -> int:
-    report: dict[str, object] = {"targets": {}, "selected_root": None, "html_refs": []}
-    all_rows: list[dict[str, str]] = []
-
+    roots: list[dict[str, str]] = []
     for target in TARGETS:
-        roots = cdx(target, wildcard=False)
-        files = cdx(target, wildcard=True)
-        all_rows.extend(files)
-        report["targets"][target] = {
-            "root_captures": roots,
-            "file_count": len(files),
-        }
-        print(f"{target}: {len(roots)} root captures, {len(files)} unique archived URLs")
+        try:
+            snap = closest(target)
+        except Exception as exc:
+            print(f"{target}: archive lookup failed: {exc}", file=sys.stderr)
+            continue
+        print(f"{target}: {snap or 'no snapshot'}")
+        if snap:
+            roots.append(snap)
 
-    # Prefer a 2013 HTML capture from the canonical unrealengine.com host.
-    candidates: list[dict[str, str]] = []
-    for target in TARGETS:
-        candidates.extend(report["targets"][target]["root_captures"])  # type: ignore[index]
-    candidates = [
-        row for row in candidates
-        if row.get("mimetype", "").startswith("text/html")
-    ]
-    candidates.sort(
-        key=lambda row: (
-            not row["original"].startswith("http://www.unrealengine.com"),
-            not row["timestamp"].startswith("2013"),
-            row["timestamp"],
-        )
-    )
-
-    if not candidates:
-        print("No archived HTML landing page found.", file=sys.stderr)
-        OUT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    if not roots:
+        OUT.write_text(json.dumps({"roots": []}, indent=2) + "\n", encoding="utf-8")
         return 2
 
-    root = candidates[0]
-    report["selected_root"] = root
-    html_url = archived_url(root)
-    html = get(html_url).decode("utf-8", errors="replace")
+    roots.sort(key=lambda s: (
+        not s["original"].startswith("http://www.unrealengine.com"),
+        abs(int(s["timestamp"][:8]) - 20130503),
+    ))
+    root = roots[0]
+    print(f"Selected: {root['timestamp']} {root['original']}")
+
+    html = get(raw_snapshot(root)).decode("utf-8", errors="replace")
     refs = extract_refs(html)
-    report["html_refs"] = refs
+    print(f"Landing HTML: {len(html):,} bytes; refs={len(refs)}")
 
-    suffixes = collections.Counter()
-    for row in all_rows:
-        path = urllib.parse.urlparse(row["original"]).path
-        suffix = Path(path).suffix.lower() or "<none>"
-        suffixes[suffix] += 1
-
-    print(f"Selected landing page: {root['timestamp']} {root['original']}")
-    print(f"Landing HTML: {len(html):,} bytes; {len(refs)} referenced resources")
-    print("Referenced resources:")
+    resources: list[dict[str, object]] = []
     for ref in refs:
-        print(f"  {ref}")
-    print("Archive extension counts:")
-    for suffix, count in suffixes.most_common(30):
-        print(f"  {suffix:12} {count}")
+        original = urllib.parse.urljoin(root["original"], ref)
+        try:
+            snap = closest(original, root["timestamp"])
+        except Exception as exc:
+            snap = None
+            print(f"  ERR  {original}: {exc}")
+        resources.append({"ref": ref, "original": original, "snapshot": snap})
+        print(("  HIT  " if snap else "  MISS ") + original)
 
-    report["extension_counts"] = dict(suffixes)
+    report = {
+        "selected_root": root,
+        "landing_bytes": len(html),
+        "refs": refs,
+        "resources": resources,
+    }
     OUT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return 0
 
