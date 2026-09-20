@@ -1046,15 +1046,19 @@ int main(int argc, char **argv)
     constexpr jint kAndroidJoystickDeviceType = 2;
     const auto send_keyboard_movement = [&](jlong timestamp) {
         const open_citadel::MovementAxes axes = keyboard_movement.axes();
-        native_joy_axis(env, activity, kKeyboardControllerId,
-                        kAndroidJoystickDeviceType, android_input::kAxisX,
-                        axes.x, timestamp);
-        native_joy_axis(env, activity, kKeyboardControllerId,
-                        kAndroidJoystickDeviceType, android_input::kAxisY,
-                        axes.y, timestamp);
+        const jboolean x_result = native_joy_axis(
+            env, activity, kKeyboardControllerId,
+            kAndroidJoystickDeviceType, android_input::kAxisX,
+            axes.x, timestamp);
+        const jboolean y_result = native_joy_axis(
+            env, activity, kKeyboardControllerId,
+            kAndroidJoystickDeviceType, android_input::kAxisY,
+            axes.y, timestamp);
         if (getenv("OPEN_CITADEL_TRACE_INPUT"))
-            fprintf(stderr, "OpenCitadel: WASD virtual stick x=%.2f y=%.2f\n",
-                    axes.x, axes.y);
+            fprintf(stderr,
+                    "OpenCitadel: WASD virtual stick x=%.2f y=%.2f "
+                    "guest-return=(%d,%d)\n",
+                    axes.x, axes.y, (int)x_result, (int)y_result);
     };
 
     while (running && !open_citadel_java_shutdown_requested()) {
@@ -1302,11 +1306,22 @@ int main(int argc, char **argv)
                     break;
                 }
                 const int code = android_keycode(key);
-                if (code)
-                    native_keyboard(env, activity, 0,
-                                    key_down ? android_input::kActionDown
-                                             : android_input::kActionUp,
-                                    code, unicode_for_key(event.key));
+                if (code) {
+                    const jint action = key_down ? android_input::kActionDown
+                                                 : android_input::kActionUp;
+                    const jint unicode = unicode_for_key(event.key);
+                    const jboolean result = native_keyboard(
+                        env, activity, 0, action, code, unicode);
+                    if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+                        fprintf(stderr,
+                                "OpenCitadel: guest keyboard action=%d "
+                                "keycode=%d unicode=%d result=%d\n",
+                                action, code, unicode, (int)result);
+                } else if (getenv("OPEN_CITADEL_TRACE_INPUT")) {
+                    fprintf(stderr,
+                            "OpenCitadel: key %s has no Android keycode mapping\n",
+                            SDL_GetKeyName(key));
+                }
                 if (!key_down && key == SDLK_ESCAPE)
                     native_back();
                 break;

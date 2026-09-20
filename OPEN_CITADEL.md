@@ -202,20 +202,24 @@ successfully. The Windows window is fixed-size after startup because live UE3
 viewport resizing currently leaves the scene partially black; F11/Alt+Enter
 display a notice instead of switching modes. A Windows settings file is
 created under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width,
-height, fullscreen, VSync, mouse sensitivity, and vertical inversion are
-persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2 opens a
-native options dialog for live mouse-look and VSync changes. Display-mode edits take
-effect after restarting, and matching environment variables override the
-saved values.
+height, fullscreen, VSync, mouse sensitivity, vertical inversion, and movement
+keys are persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2
+opens a native options dialog for live mouse-look and VSync changes; its
+Controls dialog rebinds the four movement directions. Display-mode edits take
+effect after restarting, and matching environment variables override the saved
+values.
 
-The Windows host maps W/A/S/D to a virtual left-stick axis, releases held
-movement on focus loss, and keeps mouse click-to-walk and drag-to-look input.
+The Windows host maps configurable movement keys (W/A/S/D by default) to a
+virtual left-stick axis, releases held movement on focus loss, and keeps mouse
+click-to-walk and drag-to-look input.
 Mouse sensitivity and vertical inversion can be configured at launch. These
-new keyboard paths still need live end-to-end confirmation. SDL opens a native
+keyboard and movement paths still need live end-to-end confirmation. Input
+tracing records SDL key events and the guest callback results for keyboard and
+virtual-stick delivery. SDL opens a native
 44.1 kHz stereo device; the donor's `town_render` MP3 and a real donor WAV have
 both decoded in tests, and a no-`-nosound` game run reached the song callback.
 OpenSL ES is not implemented, so engine-side effects may still be silent.
-Gamepad behavior, rebindable controls, and a clean-machine/CI run remain open.
+Gamepad behavior and a clean-machine/CI run remain open.
 A CPack ZIP now packages the Windows host, runtime DLLs, donor importer, and
 dependency notices while excluding the proprietary game data. Linux and other
 native hosts are follow-on targets.
@@ -259,10 +263,10 @@ platform check, not the current deliverable.
 - [x] Android input key/axis constants checked against ABI values
 - [x] SDL audio output and Java MP3/WAV callback mixer
 - [ ] generic game profile separated from Katamari-specific host code
-- [ ] manual end-to-end keyboard delivery
-- [ ] native gamepad behavior and rebindable input settings
+- [ ] manual end-to-end keyboard, movement, and rebind verification
+- [ ] native gamepad behavior
 - [ ] OpenSL ES compatibility
-- [x] persistent Windows display and mouse settings with an F2 options dialog
+- [x] persistent Windows display, mouse, and movement-key settings with F2 UI
 - [ ] live viewport resizing/fullscreen switching
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately
