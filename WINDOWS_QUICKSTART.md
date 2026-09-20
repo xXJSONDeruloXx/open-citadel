@@ -32,8 +32,9 @@ keys to WASD** restores defaults. Display accepts custom width/height and
 fullscreen settings for the next launch. The window can also be resized live
 (320x240 minimum); UE3 receives the new drawable size, mouse/touch coordinates
 are rescaled, and the windowed
-size is saved after resizing settles. F11/Alt+Enter request borderless
-fullscreen; that mode switch still needs visual validation. Shift+F2 opens the
+size is saved after resizing settles. Startup fullscreen was visually verified
+at 3440x1440. F11/Alt+Enter request borderless fullscreen; the live hotkey
+transition still needs visual validation. Shift+F2 opens the
 legacy native settings dialog. Settings are saved under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
 Set `OPEN_CITADEL_NATIVE_MOUSE_LOOK=0` to disable F3 capture mode.

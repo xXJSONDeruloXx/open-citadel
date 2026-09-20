@@ -207,8 +207,10 @@ the guest through
 `NativeCallback_PostInitUpdate`, and scales mouse/touch input into drawable
 pixels. The windowed size is saved after a 500 ms resize debounce. A live
 1280x720-to-1203x720 resize was visually checked with the scene still rendering.
-F11/Alt+Enter now request borderless fullscreen; that transition remains to be
-visually verified. A Windows settings file is created under
+Startup borderless fullscreen was visually verified at 3440x1440: the host
+window, drawable, and UE3 guest all reported that size, and the scene filled
+the display. F11/Alt+Enter request borderless fullscreen toggles, but the live
+hotkey transition remains to be visually verified. A Windows settings file is created under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width, height, fullscreen,
 VSync, the FPS cap, benchmark mode, render scale, mouse sensitivity, vertical
 inversion, native mouse-look availability, and movement keys are persistent;
