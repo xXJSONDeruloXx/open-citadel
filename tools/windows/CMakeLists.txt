@@ -48,6 +48,13 @@ target_include_directories(open_citadel_vr_math_test PRIVATE
 target_compile_features(open_citadel_vr_math_test PRIVATE cxx_std_17)
 add_test(NAME vr-math COMMAND open_citadel_vr_math_test)
 
+add_executable(open_citadel_vr_locomotion_test vr_locomotion_test.cpp)
+target_include_directories(open_citadel_vr_locomotion_test PRIVATE
+    ../..
+)
+target_compile_features(open_citadel_vr_locomotion_test PRIVATE cxx_std_17)
+add_test(NAME vr-locomotion COMMAND open_citadel_vr_locomotion_test)
+
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     add_executable(open_citadel_android_input_abi_test
         android_input_abi_test.cpp
