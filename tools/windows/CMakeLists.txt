@@ -128,15 +128,19 @@ if(OPEN_CITADEL_BUILD_APP)
         ${open_citadel_imgui_SOURCE_DIR}/imgui_draw.cpp
         ${open_citadel_imgui_SOURCE_DIR}/imgui_tables.cpp
         ${open_citadel_imgui_SOURCE_DIR}/imgui_widgets.cpp
-        ${open_citadel_imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+        ../../open_citadel/imgui_impl_opengl3_glad.cpp
         ${open_citadel_imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
     )
     target_include_directories(open_citadel_imgui PUBLIC
         ${open_citadel_imgui_SOURCE_DIR}
     )
+    target_include_directories(open_citadel_imgui PRIVATE
+        ../../thunks
+    )
     target_compile_features(open_citadel_imgui PUBLIC cxx_std_17)
     target_compile_definitions(open_citadel_imgui PRIVATE
         IMGUI_IMPL_OPENGL_ES2
+        IMGUI_IMPL_OPENGL_LOADER_CUSTOM
     )
     target_link_libraries(open_citadel_imgui PRIVATE
         $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>

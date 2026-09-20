@@ -241,10 +241,13 @@ override internal rendering scale. VSync defaults on;
 to its 60 FPS cap; set `OPEN_CITADEL_UNCAP_FPS=1` or use the F2 option to
 disable it. Disabling the game cap alone does not disable VSync, which can
 still limit presentation to the monitor's refresh rate. With VSync off, the
-1280x720 Windows build measured about 59.6 FPS
-with the cap. A 20-second uncapped benchmark run on an RTX 4090 logged
-1,265–1,475 frame submissions/s. These are host swap submissions, not monitor
-scanout rates; results vary by hardware and scene load. Uncapped mode can
+1280x720 Windows build measured about 59.6 FPS with the game cap enabled. A
+12-second normal (non-benchmark) run with both the game cap and VSync disabled
+logged 1,291–1,418 frame submissions/s. With the game cap disabled and VSync
+on, the same machine presented at 239.5–240.6 FPS on its 240 Hz display. A
+separate 20-second uncapped benchmark run on an RTX 4090 logged 1,265–1,475
+frame submissions/s. These are host swap submissions, not monitor scanout
+rates; results vary by hardware and scene load. Uncapped mode can
 significantly increase CPU/GPU use. The host reports average submission rate
 and frame time once per second after the initial scene frames.
 
@@ -309,7 +312,8 @@ build remains a useful secondary platform check, not the current deliverable.
 - [ ] native gamepad behavior
 - [ ] OpenSL ES compatibility
 - [x] persistent Windows settings, custom display sizes, render scale, and live performance overlay
-- [ ] live visual/input validation of the in-game ImGui overlay (F2 produced no visible panel during automation)
+- [x] live visual validation of the ImGui settings panel and tab mouse navigation
+- [ ] F2 open/close shortcut validation with physical keyboard (desktop key injection was inconclusive)
 - [x] optional uncapped benchmark mode with VSync disabled for measurement
 - [x] live Windows viewport resizing with guest size updates and input scaling
 - [x] extracted Windows ZIP smoke run with external donor data and clean exit

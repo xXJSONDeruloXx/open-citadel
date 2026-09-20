@@ -138,7 +138,8 @@ void draw_game_tab(const Snapshot &snapshot)
     };
     int resolution_scale_option =
         open_citadel::resolution_scale_option(g_ui_settings.resolution_scale);
-    if (ImGui::Combo("3D render resolution (next launch)",
+    ImGui::SetNextItemWidth(120.0f);
+    if (ImGui::Combo("3D render scale",
                      &resolution_scale_option, resolution_scale_options,
                      IM_ARRAYSIZE(resolution_scale_options))) {
         Command command;
@@ -147,7 +148,8 @@ void draw_game_tab(const Snapshot &snapshot)
             open_citadel::resolution_scale_from_option(resolution_scale_option);
         push_command(command);
     }
-    ImGui::TextDisabled("Window size and aspect ratio are independent.");
+    ImGui::TextDisabled(
+        "Next launch; independent of window size and aspect ratio.");
     ImGui::Spacing();
 
     if (ImGui::Checkbox("Native relative mouse look (F3 to capture)",
@@ -251,8 +253,8 @@ bool initialize(SDL_Window *window)
         set_open(false);
         return false;
     }
-    if (!ImGui_ImplOpenGL3_Init("#version 100")) {
-        fprintf(stderr, "OpenCitadel: ImGui OpenGL ES 2 initialization failed\n");
+    if (!ImGui_ImplOpenGL3_Init("#version 300 es")) {
+        fprintf(stderr, "OpenCitadel: ImGui OpenGL ES 3 initialization failed\n");
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext(g_context);
         g_context = nullptr;
@@ -379,8 +381,14 @@ void render(SDL_Window *window)
     ImGui::NewFrame();
 
     bool visible = true;
-    ImGui::SetNextWindowSize(ImVec2(500.0f, 440.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(34.0f, 34.0f), ImGuiCond_FirstUseEver);
+    const ImVec2 display_size = ImGui::GetIO().DisplaySize;
+    const float panel_width =
+        std::min(620.0f, std::max(280.0f, display_size.x - 32.0f));
+    const float panel_height =
+        std::min(520.0f, std::max(180.0f, display_size.y - 32.0f));
+    ImGui::SetNextWindowSize(ImVec2(panel_width, panel_height),
+                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
     ImGui::Begin("Epic Citadel | Open Citadel", &visible,
                  ImGuiWindowFlags_NoCollapse);
     ImGui::TextColored(ImVec4(0.35f, 0.83f, 0.77f, 1.0f),
