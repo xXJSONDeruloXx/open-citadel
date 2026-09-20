@@ -9,9 +9,11 @@ running Android or an emulator. The Windows build currently starts UE3, reads
 the donor assets, compiles the game's shaders, and renders the Epic Citadel
 scene. Mouse clicks and drags are translated to the original touch controls,
 Windows SDL audio handles the Java MP3-song/WAV-sound callbacks, and display
-and mouse-look settings persist. Live keyboard/gamepad behavior, OpenSL ES
-effects, and packaging still need work. Keyboard event translation and host
-shortcuts are implemented, but native key delivery has not yet been verified.
+and mouse-look settings persist. A portable Windows ZIP now bundles the host,
+runtime DLLs, donor importer, and dependency notices without proprietary game
+data. Live keyboard/gamepad behavior and OpenSL ES effects still need work.
+Keyboard event translation and host shortcuts are implemented, but native key
+delivery has not yet been verified.
 The project began from the compatibility substrate developed in
 `i-port-katamari`, but Open Citadel is now a standalone project and is not
 limited to PortMaster.
@@ -33,15 +35,17 @@ NVIDIA GeForce RTX 4090 through ANGLE. The bring-up has verified:
 This is a working bring-up, not a finished port. The Java audio callback path
 now plays donor music and supports WAV sound callbacks, but OpenSL ES is not
 implemented and live keyboard/gamepad behavior still needs verification. A
-rebindable controls UI and distributable installer also remain future work.
+rebindable controls UI, clean-machine validation, and an installer remain
+future work; the portable ZIP can be generated with CPack.
 
 See [OPEN_CITADEL.md](OPEN_CITADEL.md) for detailed donor-format notes,
 architecture, reverse-engineering findings, and the milestone tracker.
 
 ## Native Windows build
 
-Use a vcpkg installation (set `VCPKG_ROOT` if it is not already configured),
-then configure the 32-bit Windows host. The root `vcpkg.json` supplies SDL2,
+Use CMake 3.21 or newer and a vcpkg installation (set `VCPKG_ROOT` if it is
+not already configured), then configure the 32-bit Windows host. The root
+`vcpkg.json` supplies SDL2,
 ANGLE, mpg123, pthreads, dirent, and zlib:
 
 ```powershell
@@ -53,7 +57,13 @@ cmake -S tools/windows -B build/windows-app-win32 `
   -DOPEN_CITADEL_BUILD_APP=ON
 cmake --build build/windows-app-win32 --config Release --parallel
 ctest --test-dir build/windows-app-win32 -C Release --output-on-failure
+cpack --config build/windows-app-win32/CPackConfig.cmake -C Release `
+  -G ZIP -B build/windows-app-win32/package
 ```
+
+The resulting ZIP includes a Windows quick start, the donor importer, and
+third-party runtime notices; it deliberately excludes game data. See
+`WINDOWS_QUICKSTART.md` after extracting it.
 
 Import your own XAPK if the donor has not already been imported:
 

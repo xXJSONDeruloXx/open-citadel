@@ -1,5 +1,9 @@
-cmake_minimum_required(VERSION 3.20)
-project(OpenCitadelWindows LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.21)
+project(OpenCitadelWindows VERSION 0.1.0 LANGUAGES CXX)
+
+if(POLICY CMP0207)
+    cmake_policy(SET CMP0207 NEW)
+endif()
 
 option(OPEN_CITADEL_BUILD_APP "Build the native Win32 Epic Citadel host" OFF)
 
@@ -174,6 +178,64 @@ if(OPEN_CITADEL_BUILD_APP)
             )
         endif()
     endforeach()
+
+    install(TARGETS open-citadel
+        RUNTIME_DEPENDENCY_SET open_citadel_runtime
+        RUNTIME DESTINATION .
+    )
+    install(RUNTIME_DEPENDENCY_SET open_citadel_runtime
+        PRE_EXCLUDE_REGEXES "^api-ms-" "^ext-ms-"
+        POST_EXCLUDE_REGEXES
+            ".*[Ww][Ii][Nn][Dd][Oo][Ww][Ss][/\\\\].*"
+        RUNTIME DESTINATION .
+    )
+    foreach(angle_target IN ITEMS
+            unofficial::angle::libEGL
+            unofficial::angle::libGLESv2)
+        install(FILES "$<TARGET_FILE:${angle_target}>" DESTINATION .)
+    endforeach()
+    install(FILES
+        "${CMAKE_SOURCE_DIR}/../../WINDOWS_QUICKSTART.md"
+        "${CMAKE_SOURCE_DIR}/../../LICENSE"
+        "${CMAKE_SOURCE_DIR}/../../NOTICE.md"
+        DESTINATION .
+    )
+    install(FILES
+        "${CMAKE_SOURCE_DIR}/../../README.md"
+        "${CMAKE_SOURCE_DIR}/../../OPEN_CITADEL.md"
+        DESTINATION docs
+    )
+    install(FILES
+        "${CMAKE_SOURCE_DIR}/../../tools/open_citadel_import.py"
+        DESTINATION .
+    )
+
+    set(_open_citadel_vcpkg_share
+        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share")
+    foreach(port IN ITEMS angle mpg123 pthreads sdl2 zlib)
+        set(port_copyright "${_open_citadel_vcpkg_share}/${port}/copyright")
+        if(NOT EXISTS "${port_copyright}")
+            message(FATAL_ERROR
+                "Missing ${port} copyright notice: ${port_copyright}")
+        endif()
+        install(FILES "${port_copyright}"
+            DESTINATION "licenses/${port}"
+        )
+    endforeach()
+
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION .)
+    include(InstallRequiredSystemLibraries)
+
+    set(CPACK_GENERATOR ZIP)
+    set(CPACK_PACKAGE_NAME "OpenCitadel-Windows")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_FILE_NAME
+        "OpenCitadel-Windows-${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+        "Native Windows host for Epic Citadel 1.07")
+    set(CPACK_PACKAGE_VENDOR "Open Citadel")
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
+    include(CPack)
 
     add_executable(open_citadel_audio_test
         audio_test.cpp

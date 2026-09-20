@@ -215,8 +215,10 @@ new keyboard paths still need live end-to-end confirmation. SDL opens a native
 44.1 kHz stereo device; the donor's `town_render` MP3 and a real donor WAV have
 both decoded in tests, and a no-`-nosound` game run reached the song callback.
 OpenSL ES is not implemented, so engine-side effects may still be silent.
-Gamepad behavior, rebindable controls, packaging, and a clean-machine/CI run
-remain open. Linux and other native hosts are follow-on targets.
+Gamepad behavior, rebindable controls, and a clean-machine/CI run remain open.
+A CPack ZIP now packages the Windows host, runtime DLLs, donor importer, and
+dependency notices while excluding the proprietary game data. Linux and other
+native hosts are follow-on targets.
 
 The validation sequence is:
 
