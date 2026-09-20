@@ -19,10 +19,13 @@ your own Epic Citadel 1.07 XAPK.
    ```
 
 Click the ground to walk and drag with either mouse button to look around.
-W/A/S/D movement is confirmed working. F1 shows controls, and F2 opens the
-in-game settings overlay. Its Game tab displays live FPS/frame time and
+W/A/S/D movement is confirmed working. F3 captures the pointer for clickless
+relative camera look; F3 or Escape releases it. F2/settings and focus loss also
+release capture. F1 shows controls, and F2 opens the in-game settings overlay.
+Its Game tab displays live FPS/frame time and
 controls mouse, VSync, frame-cap/benchmark settings, and the game's 3D render
-scale (50%, 75%, or 100%; 100% by default, applied next launch). Set
+scale (50%, 75%, or 100%; 100% by default, applied next launch), plus native
+relative mouse look (enabled by default). Set
 `OPEN_CITADEL_RESOLUTION_SCALE` to `0.50`, `0.75`, or `1.00` to override it. Use
 Controls to rebind movement keys; Escape cancels a rebind and **Reset movement
 keys to WASD** restores defaults. Display accepts custom width/height and
@@ -33,12 +36,16 @@ size is saved after resizing settles. F11/Alt+Enter request borderless
 fullscreen; that mode switch still needs visual validation. Shift+F2 opens the
 legacy native settings dialog. Settings are saved under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
+Set `OPEN_CITADEL_NATIVE_MOUSE_LOOK=0` to disable F3 capture mode.
+Set `OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1` to start with the pointer
+captured; press F3 or Escape to release it.
 
 The game defaults to its 60 FPS cap. In the Game tab, enable **Disable the
 game's 60 FPS cap next launch** and restart to uncap it, or set
 `OPEN_CITADEL_UNCAP_FPS=1` before launching. VSync is a separate setting;
-uncapped mode with VSync off can use
-substantially more CPU/GPU.
+with VSync on, presentation can still be limited to your display's refresh
+rate even though the game's 60 FPS cap is disabled. Uncapped mode with VSync
+off can use substantially more CPU/GPU.
 For a benchmark run with both the game limit and VSync disabled, choose
 **Uncapped benchmark mode next launch** in the Game tab or set
 `OPEN_CITADEL_UNCAPPED_BENCHMARK=1`. This preserves your saved VSync preference.

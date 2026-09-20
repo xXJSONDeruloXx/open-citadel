@@ -39,7 +39,9 @@
 #include "crash.h"
 #include "gles2_probe.h"
 #include "android_input_codes.h"
+#include "frame_pacing.h"
 #include "keyboard_controls.h"
+#include "mouse_look.h"
 #include "settings.h"
 #include "window_geometry.h"
 #if defined(_WIN32)
@@ -687,6 +689,7 @@ static bool reserved_movement_key(SDL_Keycode key)
     case SDLK_KP_ENTER:
     case SDLK_F1:
     case SDLK_F2:
+    case SDLK_F3:
     case SDLK_F11:
     case SDLK_LALT:
     case SDLK_RALT:
@@ -943,6 +946,8 @@ int main(int argc, char **argv)
                 "OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.\n"
                 "OPEN_CITADEL_MOUSE_SENSITIVITY scales drag-look; "
                 "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look; "
+                "OPEN_CITADEL_NATIVE_MOUSE_LOOK=0 disables F3 relative-look; "
+                "OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1 starts captured; "
                 "OPEN_CITADEL_RESOLUTION_SCALE selects 0.50, 0.75, or 1.00; "
                 "OPEN_CITADEL_VSYNC=0 disables VSync; "
                 "OPEN_CITADEL_UNCAP_FPS=1 disables the Windows 60 FPS cap; "
@@ -1035,10 +1040,14 @@ int main(int argc, char **argv)
                   0.5f, 1.0f));
     settings.invert_mouse_y = env_bool(
         "OPEN_CITADEL_INVERT_MOUSE_Y", settings.invert_mouse_y);
+    settings.native_mouse_look = env_bool(
+        "OPEN_CITADEL_NATIVE_MOUSE_LOOK", settings.native_mouse_look);
 #if defined(_WIN32)
-    const bool active_uncap_fps =
-        settings.uncap_fps || settings.uncapped_benchmark;
-    bool active_vsync = settings.vsync && !settings.uncapped_benchmark;
+    const open_citadel::FramePacingMode frame_pacing =
+        open_citadel::resolve_frame_pacing(
+            settings.vsync, settings.uncap_fps, settings.uncapped_benchmark);
+    const bool active_uncap_fps = frame_pacing.disable_game_fps_cap;
+    bool active_vsync = frame_pacing.vsync_enabled;
     open_citadel_java_set_uncap_fps(active_uncap_fps ? 1 : 0);
     fprintf(stderr, "OpenCitadel: game FPS cap=%s\n",
             active_uncap_fps ? "disabled" : "enabled");
@@ -1052,6 +1061,8 @@ int main(int argc, char **argv)
     open_citadel_java_set_resolution_scale(settings.resolution_scale);
     fprintf(stderr, "OpenCitadel: game render scale=%d%%\n",
             (int)std::lround(settings.resolution_scale * 100.0f));
+    fprintf(stderr, "OpenCitadel: native relative mouse look=%s (F3 capture)\n",
+            settings.native_mouse_look ? "enabled" : "disabled");
 
     open_citadel::MovementKeyBindings movement_bindings;
     if (!movement_bindings.configure(
@@ -1272,6 +1283,12 @@ int main(int argc, char **argv)
     bool running = true;
     bool interrupted = false;
     bool alt_enter_toggled = false;
+    bool native_mouse_look_enabled = settings.native_mouse_look;
+    bool native_mouse_look_captured = false;
+    bool native_mouse_axes_active = false;
+    float pending_mouse_delta_x = 0.0f;
+    float pending_mouse_delta_y = 0.0f;
+    Uint64 mouse_axes_deadline = 0;
     Uint32 mouse_touch_buttons = 0;
     int mouse_x = window_width / 2;
     int mouse_y = window_height / 2;
@@ -1314,6 +1331,62 @@ int main(int argc, char **argv)
                     "OpenCitadel: WASD virtual stick x=%.2f y=%.2f "
                     "guest-return=(%d,%d)\n",
                     axes.x, axes.y, (int)x_result, (int)y_result);
+    };
+
+    const auto send_native_mouse_look_axes = [&](float x, float y,
+                                                 jlong timestamp) {
+        const jboolean x_result = native_joy_axis(
+            env, activity, kKeyboardControllerId,
+            kAndroidJoystickDeviceType, android_input::kAxisZ, x, timestamp);
+        const jboolean y_result = native_joy_axis(
+            env, activity, kKeyboardControllerId,
+            kAndroidJoystickDeviceType, android_input::kAxisRz, y, timestamp);
+        if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+            fprintf(stderr,
+                    "OpenCitadel: mouse virtual right stick x=%.3f y=%.3f "
+                    "guest-return=(%d,%d)\n",
+                    x, y, (int)x_result, (int)y_result);
+    };
+
+    const auto release_native_mouse_look = [&](jlong timestamp) {
+        if (!native_mouse_look_captured)
+            return;
+        native_mouse_look_captured = false;
+        native_mouse_axes_active = false;
+        pending_mouse_delta_x = 0.0f;
+        pending_mouse_delta_y = 0.0f;
+        send_native_mouse_look_axes(0.0f, 0.0f, timestamp);
+        if (SDL_SetRelativeMouseMode(SDL_FALSE) != 0)
+            fprintf(stderr,
+                    "OpenCitadel: could not release relative mouse mode: %s\n",
+                    SDL_GetError());
+        SDL_GetMouseState(&mouse_x, &mouse_y);
+        if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+            fprintf(stderr, "OpenCitadel: native mouse look released\n");
+    };
+
+    const auto capture_native_mouse_look = [&](jlong timestamp) {
+        if (!native_mouse_look_enabled || native_mouse_look_captured)
+            return;
+        if (mouse_touch_buttons) {
+            native_input(env, activity, android_input::kActionCancel,
+                         (int)std::lround(touch_x),
+                         (int)std::lround(touch_y), 0, timestamp);
+            mouse_touch_buttons = 0;
+        }
+        if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
+            fprintf(stderr,
+                    "OpenCitadel: relative mouse capture failed: %s\n",
+                    SDL_GetError());
+            return;
+        }
+        native_mouse_look_captured = true;
+        pending_mouse_delta_x = 0.0f;
+        pending_mouse_delta_y = 0.0f;
+        native_mouse_axes_active = false;
+        send_native_mouse_look_axes(0.0f, 0.0f, timestamp);
+        if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+            fprintf(stderr, "OpenCitadel: native mouse look captured\n");
     };
 
 #if defined(_WIN32)
@@ -1380,6 +1453,13 @@ int main(int argc, char **argv)
                     open_citadel::normalize_resolution_scale(command.value);
                 general_settings_changed = true;
                 break;
+            case CommandType::SetNativeMouseLook:
+                settings.native_mouse_look = command.enabled;
+                native_mouse_look_enabled = settings.native_mouse_look;
+                if (!native_mouse_look_enabled)
+                    release_native_mouse_look((jlong)SDL_GetTicks64());
+                general_settings_changed = true;
+                break;
             case CommandType::SetFullscreen:
                 settings.fullscreen = command.enabled;
                 display_settings_changed = true;
@@ -1433,6 +1513,7 @@ int main(int argc, char **argv)
                 settings.uncapped_benchmark;
             saved_settings.mouse_sensitivity = settings.mouse_sensitivity;
             saved_settings.resolution_scale = settings.resolution_scale;
+            saved_settings.native_mouse_look = settings.native_mouse_look;
             saved_settings.invert_mouse_y = settings.invert_mouse_y;
             ++overlay_revision;
             if (!save_user_settings(settings_path, saved_settings))
@@ -1451,6 +1532,10 @@ int main(int argc, char **argv)
         }
     };
 #endif
+
+    if (native_mouse_look_enabled &&
+        env_bool("OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE", false))
+        capture_native_mouse_look((jlong)SDL_GetTicks64());
 
     while (running && !open_citadel_java_shutdown_requested()) {
 #if defined(_WIN32)
@@ -1554,6 +1639,8 @@ int main(int argc, char **argv)
 
             case SDL_MOUSEBUTTONDOWN:
             case SDL_MOUSEBUTTONUP: {
+                if (native_mouse_look_captured)
+                    break;
                 const Uint32 button_mask =
                     event.button.button == SDL_BUTTON_LEFT ? SDL_BUTTON_LMASK :
                     event.button.button == SDL_BUTTON_RIGHT ? SDL_BUTTON_RMASK :
@@ -1584,7 +1671,12 @@ int main(int argc, char **argv)
                 break;
             }
             case SDL_MOUSEMOTION:
-                if (mouse_touch_buttons) {
+                if (native_mouse_look_captured) {
+                    pending_mouse_delta_x +=
+                        static_cast<float>(event.motion.xrel);
+                    pending_mouse_delta_y +=
+                        static_cast<float>(event.motion.yrel);
+                } else if (mouse_touch_buttons) {
                     const float delta_x = open_citadel::scale_delta(
                         static_cast<float>(event.motion.x - mouse_x),
                         window_width, width);
@@ -1716,6 +1808,13 @@ int main(int argc, char **argv)
                     suppress_escape_keyup = false;
                 }
 
+                if (key == SDLK_ESCAPE && key_down &&
+                    native_mouse_look_captured) {
+                    release_native_mouse_look(event_time);
+                    suppress_escape_keyup = true;
+                    break;
+                }
+
                 const bool is_enter = key == SDLK_RETURN ||
                                       key == SDLK_KP_ENTER;
                 if (is_enter && !key_down && alt_enter_toggled) {
@@ -1737,6 +1836,16 @@ int main(int argc, char **argv)
                         toggle_fullscreen(window);
                     break;
                 }
+                if (key == SDLK_F3) {
+                    if (key_down && !event.key.repeat &&
+                        native_mouse_look_enabled) {
+                        if (native_mouse_look_captured)
+                            release_native_mouse_look(event_time);
+                        else
+                            capture_native_mouse_look(event_time);
+                    }
+                    break;
+                }
                 if (key == SDLK_F1) {
                     if (key_down && !event.key.repeat) {
                         const std::string controls =
@@ -1754,7 +1863,9 @@ int main(int argc, char **argv)
                                 movement_bindings,
                                 open_citadel::MovementKey::Right) +
                             " move. Click the ground to walk and "
-                            "drag with the mouse to look around. F2 opens "
+                            "drag with the mouse to look around. F3 captures "
+                            "the mouse for relative camera look; F3 or Escape "
+                            "releases it. F2 opens "
                             "desktop settings; Shift+F2 opens the legacy "
                             "settings dialog; Escape closes the overlay. "
                             "Resize the window freely; F11 or Alt+Enter "
@@ -1773,6 +1884,7 @@ int main(int argc, char **argv)
                 }
                 if (key == SDLK_F2) {
                     if (key_down && !event.key.repeat) {
+                        release_native_mouse_look(event_time);
                         if (mouse_touch_buttons) {
                             mouse_touch_buttons = 0;
                             native_input(
@@ -1950,6 +2062,7 @@ int main(int argc, char **argv)
                 } else if ((event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
                             event.window.event == SDL_WINDOWEVENT_MINIMIZED) &&
                            !interrupted) {
+                    release_native_mouse_look(event_time);
                     if (mouse_touch_buttons) {
                         native_input(env, activity,
                                      android_input::kActionCancel,
@@ -1972,6 +2085,27 @@ int main(int argc, char **argv)
             default:
                 break;
             }
+        }
+
+        const Uint64 mouse_look_now = SDL_GetTicks64();
+        if (native_mouse_look_captured &&
+            (pending_mouse_delta_x != 0.0f ||
+             pending_mouse_delta_y != 0.0f)) {
+            const open_citadel::RelativeMouseAxes axes =
+                open_citadel::relative_mouse_look_axes(
+                    pending_mouse_delta_x, pending_mouse_delta_y,
+                    settings.mouse_sensitivity, settings.invert_mouse_y);
+            send_native_mouse_look_axes(axes.x, axes.y,
+                                        (jlong)mouse_look_now);
+            pending_mouse_delta_x = 0.0f;
+            pending_mouse_delta_y = 0.0f;
+            native_mouse_axes_active = true;
+            mouse_axes_deadline = mouse_look_now + 16;
+        } else if (native_mouse_axes_active &&
+                   mouse_look_now >= mouse_axes_deadline) {
+            send_native_mouse_look_axes(0.0f, 0.0f,
+                                        (jlong)mouse_look_now);
+            native_mouse_axes_active = false;
         }
 
         if (window_size_save_pending &&
@@ -2028,6 +2162,7 @@ int main(int argc, char **argv)
         SDL_Delay(8);
     }
 
+    release_native_mouse_look((jlong)SDL_GetTicks64());
     if (controller)
         SDL_GameControllerClose(controller);
     if (window_size_save_pending &&

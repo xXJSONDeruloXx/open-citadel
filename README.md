@@ -84,18 +84,25 @@ in that default location, or pass its path explicitly:
 ```
 
 Clicking the ground walks to that destination. Holding and dragging either
-mouse button looks around; W/A/S/D send a virtual movement-stick input. On
-first launch, the host creates
+mouse button looks around; W/A/S/D send a virtual movement-stick input. F3
+captures the pointer for clickless relative camera look; press F3 or Escape to
+release it. F2/settings and focus loss also release capture. While captured,
+mouse motion feeds the game's right-stick axes; click-to-walk and
+drag-look are available again when the pointer is released. On first launch,
+the host creates
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`. F2 opens an in-game Dear
 ImGui settings overlay. Its Game tab shows live FPS/frame time and controls
 mouse-look sensitivity, vertical inversion, VSync, the next-launch FPS cap,
-uncapped benchmark mode, and the game's 3D render scale (50%, 75%, or 100%;
-100% by default). The Controls tab can rebind Forward, Backward, Left, and
+uncapped benchmark mode, native relative mouse look (enabled by default), and
+the game's 3D render scale (50%, 75%, or 100%; 100% by default). The Controls
+tab can rebind Forward, Backward, Left, and
 Right; Escape cancels a rebind and Reset restores WASD. The Display tab accepts
 custom width/height values and selects fullscreen for the next launch. Shift+F2
 opens the legacy native dialog as a fallback. All options are saved in the
 settings file.
-`OPEN_CITADEL_CONFIG` can select a different settings file.
+`OPEN_CITADEL_CONFIG` can select a different settings file. Set
+`OPEN_CITADEL_NATIVE_MOUSE_LOOK=0` to disable the F3 capture option.
+`OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1` starts with the pointer captured.
 
 On Windows, the Game tab offers **Disable the game's 60 FPS cap next launch**.
 The default is the game's 60 FPS cap; changing the option requires a restart.
@@ -105,6 +112,8 @@ when enabled it still synchronizes presentation to the display, while uncapped
 mode with VSync off can use substantially more CPU/GPU. A 20-second uncapped
 benchmark run on an RTX 4090 logged 1,265–1,475 frame submissions/s at
 1280x720; actual rates depend on hardware and scene load.
+Disabling only the game's 60 FPS cap can still leave presentation limited to
+the monitor's refresh rate. The dedicated benchmark option disables both.
 For a fully uncapped benchmark, choose **Uncapped benchmark mode next launch**
 in the Game tab or set `OPEN_CITADEL_UNCAPPED_BENCHMARK=1`. This starts UE3 in
 benchmark mode, removes its 60 FPS limit, and forces VSync off for that run;

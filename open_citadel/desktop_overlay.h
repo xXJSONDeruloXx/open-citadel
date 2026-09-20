@@ -17,6 +17,7 @@ enum class CommandType {
     SetUncapFps,
     SetUncappedBenchmark,
     SetResolutionScale,
+    SetNativeMouseLook,
     SetFullscreen,
     SaveResolution,
     BeginRebind,

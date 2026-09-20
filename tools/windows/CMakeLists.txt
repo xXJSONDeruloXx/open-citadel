@@ -40,6 +40,20 @@ target_include_directories(open_citadel_window_geometry_test PRIVATE
 target_compile_features(open_citadel_window_geometry_test PRIVATE cxx_std_17)
 add_test(NAME window-geometry COMMAND open_citadel_window_geometry_test)
 
+add_executable(open_citadel_mouse_look_test mouse_look_test.cpp)
+target_include_directories(open_citadel_mouse_look_test PRIVATE
+    ../../open_citadel
+)
+target_compile_features(open_citadel_mouse_look_test PRIVATE cxx_std_17)
+add_test(NAME native-mouse-look COMMAND open_citadel_mouse_look_test)
+
+add_executable(open_citadel_frame_pacing_test frame_pacing_test.cpp)
+target_include_directories(open_citadel_frame_pacing_test PRIVATE
+    ../../open_citadel
+)
+target_compile_features(open_citadel_frame_pacing_test PRIVATE cxx_std_17)
+add_test(NAME frame-pacing COMMAND open_citadel_frame_pacing_test)
+
 add_executable(open_citadel_settings_test settings_test.cpp)
 target_include_directories(open_citadel_settings_test PRIVATE
     ../../open_citadel

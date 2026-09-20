@@ -128,7 +128,9 @@ void draw_game_tab(const Snapshot &snapshot)
         command.enabled = g_ui_settings.uncapped_benchmark;
         push_command(command);
     }
-    ImGui::TextDisabled("Benchmark mode also disables VSync for that run.");
+    ImGui::TextWrapped(
+        "VSync can still cap FPS at your display refresh when the game's "
+        "60 FPS cap is disabled. Benchmark mode disables both.");
     ImGui::Spacing();
 
     static const char *resolution_scale_options[] = {
@@ -146,6 +148,16 @@ void draw_game_tab(const Snapshot &snapshot)
         push_command(command);
     }
     ImGui::TextDisabled("Window size and aspect ratio are independent.");
+    ImGui::Spacing();
+
+    if (ImGui::Checkbox("Native relative mouse look (F3 to capture)",
+                        &g_ui_settings.native_mouse_look)) {
+        Command command;
+        command.type = CommandType::SetNativeMouseLook;
+        command.enabled = g_ui_settings.native_mouse_look;
+        push_command(command);
+    }
+    ImGui::TextDisabled("F3 toggles capture; Esc releases the pointer.");
     ImGui::Spacing();
 
     if (ImGui::SliderFloat("Mouse sensitivity",
