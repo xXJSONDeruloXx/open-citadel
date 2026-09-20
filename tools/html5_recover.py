@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = "http://www.unrealengine.com/html5/"
 STAMP = "20130504031131"
 UA = "Open-Citadel-HTML5-Recovery/1.0"
-CORE = ("UDKGame_Data.js", "UDKGame-Browser-Shipping.js")
+CORE = (\n    "UDKGame_Data.js",\n    "UDKGame_Data.data",\n    "UDKGame-Browser-Shipping.js",\n    "UDKGame-Browser-Shipping.js.mem",\n)
 
 
 def archived(original: str) -> str:
