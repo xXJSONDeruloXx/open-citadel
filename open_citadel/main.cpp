@@ -224,13 +224,132 @@ static bool save_user_settings(const std::filesystem::path &path,
     return true;
 }
 
-static void show_settings_dialog(SDL_Window *window,
-                                const std::filesystem::path &settings_path,
-                                open_citadel::UserSettings *settings,
-                                open_citadel::UserSettings *saved_settings)
+static std::string movement_key_name(
+    const open_citadel::MovementKeyBindings &bindings,
+    open_citadel::MovementKey key)
 {
-    if (!window || !settings || !saved_settings)
+    const char *name = SDL_GetKeyName(
+        (SDL_Keycode)bindings.key_code(key));
+    return name && *name ? name : "Unknown";
+}
+
+static const char *movement_key_label(open_citadel::MovementKey key)
+{
+    switch (key) {
+    case open_citadel::MovementKey::Forward: return "Forward";
+    case open_citadel::MovementKey::Backward: return "Backward";
+    case open_citadel::MovementKey::Left: return "Left";
+    case open_citadel::MovementKey::Right: return "Right";
+    }
+    return "Movement";
+}
+
+static void copy_movement_bindings_to_settings(
+    const open_citadel::MovementKeyBindings &bindings,
+    open_citadel::UserSettings *settings)
+{
+    if (!settings)
         return;
+    settings->move_forward = movement_key_name(
+        bindings, open_citadel::MovementKey::Forward);
+    settings->move_backward = movement_key_name(
+        bindings, open_citadel::MovementKey::Backward);
+    settings->move_left = movement_key_name(
+        bindings, open_citadel::MovementKey::Left);
+    settings->move_right = movement_key_name(
+        bindings, open_citadel::MovementKey::Right);
+}
+
+static void save_movement_bindings(
+    const std::filesystem::path &settings_path,
+    const open_citadel::MovementKeyBindings &bindings,
+    open_citadel::UserSettings *settings,
+    open_citadel::UserSettings *saved_settings)
+{
+    copy_movement_bindings_to_settings(bindings, settings);
+    copy_movement_bindings_to_settings(bindings, saved_settings);
+    if (saved_settings && !save_user_settings(settings_path, *saved_settings))
+        fprintf(stderr, "OpenCitadel: movement keys are active but were not saved\n");
+}
+
+static bool show_controls_dialog(
+    SDL_Window *window, const std::filesystem::path &settings_path,
+    open_citadel::UserSettings *settings,
+    open_citadel::UserSettings *saved_settings,
+    open_citadel::MovementKeyBindings *bindings,
+    open_citadel::MovementKey *pending_rebind)
+{
+    if (!window || !settings || !saved_settings || !bindings ||
+        !pending_rebind)
+        return false;
+
+    const SDL_MessageBoxButtonData buttons[] = {
+        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT |
+             SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Done"},
+        {0, 1, "Forward"},
+        {0, 2, "Backward"},
+        {0, 3, "Left"},
+        {0, 4, "Right"},
+        {0, 5, "Reset to WASD"},
+    };
+
+    for (;;) {
+        const std::string forward = movement_key_name(
+            *bindings, open_citadel::MovementKey::Forward);
+        const std::string backward = movement_key_name(
+            *bindings, open_citadel::MovementKey::Backward);
+        const std::string left = movement_key_name(
+            *bindings, open_citadel::MovementKey::Left);
+        const std::string right = movement_key_name(
+            *bindings, open_citadel::MovementKey::Right);
+        char message[512];
+        std::snprintf(message, sizeof(message),
+                      "Forward: %s\nBackward: %s\nLeft: %s\nRight: %s\n\n"
+                      "Choose a direction to rebind, or reset to WASD.",
+                      forward.c_str(), backward.c_str(), left.c_str(),
+                      right.c_str());
+        const SDL_MessageBoxData data = {
+            SDL_MESSAGEBOX_INFORMATION,
+            window,
+            "Epic Citadel controls",
+            message,
+            (int)(sizeof(buttons) / sizeof(buttons[0])),
+            buttons,
+            nullptr,
+        };
+        int pressed = 0;
+        if (SDL_ShowMessageBox(&data, &pressed) != 0) {
+            fprintf(stderr, "OpenCitadel: controls dialog failed: %s\n",
+                    SDL_GetError());
+            return false;
+        }
+
+        switch (pressed) {
+        case 1: *pending_rebind = open_citadel::MovementKey::Forward; return true;
+        case 2: *pending_rebind = open_citadel::MovementKey::Backward; return true;
+        case 3: *pending_rebind = open_citadel::MovementKey::Left; return true;
+        case 4: *pending_rebind = open_citadel::MovementKey::Right; return true;
+        case 5:
+            bindings->reset();
+            save_movement_bindings(settings_path, *bindings, settings,
+                                   saved_settings);
+            break;
+        default:
+            return false;
+        }
+    }
+}
+
+static bool show_settings_dialog(
+    SDL_Window *window, const std::filesystem::path &settings_path,
+    open_citadel::UserSettings *settings,
+    open_citadel::UserSettings *saved_settings,
+    open_citadel::MovementKeyBindings *bindings,
+    open_citadel::MovementKey *pending_rebind)
+{
+    if (!window || !settings || !saved_settings || !bindings ||
+        !pending_rebind)
+        return false;
 
     const SDL_MessageBoxButtonData buttons[] = {
         {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT |
@@ -240,19 +359,30 @@ static void show_settings_dialog(SDL_Window *window,
         {0, 3, "Toggle Y inversion"},
         {0, 4, "Toggle VSync"},
         {0, 5, "Reset mouse"},
+        {0, 6, "Controls..."},
     };
 
     for (;;) {
-        char message[768];
+        const std::string forward = movement_key_name(
+            *bindings, open_citadel::MovementKey::Forward);
+        const std::string backward = movement_key_name(
+            *bindings, open_citadel::MovementKey::Backward);
+        const std::string left = movement_key_name(
+            *bindings, open_citadel::MovementKey::Left);
+        const std::string right = movement_key_name(
+            *bindings, open_citadel::MovementKey::Right);
+        char message[1024];
         std::snprintf(
             message, sizeof(message),
             "Mouse sensitivity: %.1f\nVertical look: %s\nVSync: %s\n\n"
+            "Movement: %s / %s / %s / %s\n\n"
             "Window: %d x %d (%s)\n"
             "Window size and fullscreen apply after restarting.\n"
-            "Settings file: %s",
+            "Settings file: %s\nChoose Controls... to rebind movement.",
             settings->mouse_sensitivity,
             settings->invert_mouse_y ? "inverted" : "normal",
-            settings->vsync ? "on" : "off", settings->width,
+            settings->vsync ? "on" : "off", forward.c_str(),
+            backward.c_str(), left.c_str(), right.c_str(), settings->width,
             settings->height, settings->fullscreen ? "fullscreen" : "windowed",
             settings_path.empty() ? "unavailable" : settings_path.string().c_str());
         const SDL_MessageBoxData data = {
@@ -268,7 +398,7 @@ static void show_settings_dialog(SDL_Window *window,
         if (SDL_ShowMessageBox(&data, &pressed) != 0) {
             fprintf(stderr, "OpenCitadel: settings dialog failed: %s\n",
                     SDL_GetError());
-            return;
+            return false;
         }
 
         bool changed = false;
@@ -301,8 +431,14 @@ static void show_settings_dialog(SDL_Window *window,
             settings->invert_mouse_y = false;
             changed = true;
             break;
+        case 6:
+            if (show_controls_dialog(window, settings_path, settings,
+                                     saved_settings, bindings,
+                                     pending_rebind))
+                return true;
+            continue;
         default:
-            return;
+            return false;
         }
 
         if (changed) {
@@ -313,6 +449,31 @@ static void show_settings_dialog(SDL_Window *window,
                 fprintf(stderr,
                         "OpenCitadel: settings are active but were not saved\n");
         }
+    }
+}
+
+static bool reserved_movement_key(SDL_Keycode key)
+{
+    switch (key) {
+    case SDLK_UNKNOWN:
+    case SDLK_ESCAPE:
+    case SDLK_RETURN:
+    case SDLK_KP_ENTER:
+    case SDLK_F1:
+    case SDLK_F2:
+    case SDLK_F11:
+    case SDLK_LALT:
+    case SDLK_RALT:
+    case SDLK_LSHIFT:
+    case SDLK_RSHIFT:
+    case SDLK_LCTRL:
+    case SDLK_RCTRL:
+    case SDLK_LGUI:
+    case SDLK_RGUI:
+    case SDLK_MENU:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -566,7 +727,7 @@ int main(int argc, char **argv)
                 "If omitted, searches ./gamedata/epic-citadel-1.07 and "
                 "the matching path beside the executable.\n"
                 "OPEN_CITADEL_GAME_DIR may also select the data directory.\n"
-                "F1 shows controls; F2 opens saved mouse and VSync settings.\n"
+                "F1 shows controls; F2 opens desktop and movement settings.\n"
                 "Preferences are stored in %%APPDATA%%\\OpenCitadel\\EpicCitadel "
                 "or OPEN_CITADEL_CONFIG.\n"
                 "OPEN_CITADEL_WIDTH/HEIGHT choose startup window size; "
@@ -653,6 +814,30 @@ int main(int argc, char **argv)
         "OPEN_CITADEL_MOUSE_SENSITIVITY", settings.mouse_sensitivity, 0.1f, 4.0f);
     settings.invert_mouse_y = env_bool(
         "OPEN_CITADEL_INVERT_MOUSE_Y", settings.invert_mouse_y);
+
+    open_citadel::MovementKeyBindings movement_bindings;
+    if (!movement_bindings.configure(
+            SDL_GetKeyFromName(settings.move_forward.c_str()),
+            SDL_GetKeyFromName(settings.move_backward.c_str()),
+            SDL_GetKeyFromName(settings.move_left.c_str()),
+            SDL_GetKeyFromName(settings.move_right.c_str()))) {
+        fprintf(stderr,
+                "OpenCitadel: invalid or duplicate movement keys in settings; "
+                "using WASD\n");
+        movement_bindings.reset();
+    }
+    const std::string forward_key_name = movement_key_name(
+        movement_bindings, open_citadel::MovementKey::Forward);
+    const std::string backward_key_name = movement_key_name(
+        movement_bindings, open_citadel::MovementKey::Backward);
+    const std::string left_key_name = movement_key_name(
+        movement_bindings, open_citadel::MovementKey::Left);
+    const std::string right_key_name = movement_key_name(
+        movement_bindings, open_citadel::MovementKey::Right);
+    fprintf(stderr,
+            "OpenCitadel: movement keys forward=%s backward=%s left=%s right=%s\n",
+            forward_key_name.c_str(), backward_key_name.c_str(),
+            left_key_name.c_str(), right_key_name.c_str());
 
     int width = settings.width;
     int height = settings.height;
@@ -853,6 +1038,10 @@ int main(int argc, char **argv)
     }
 
     open_citadel::KeyboardMovementState keyboard_movement;
+    open_citadel::MovementKey pending_movement_rebind =
+        open_citadel::MovementKey::Forward;
+    bool capture_movement_key = false;
+    bool suppress_escape_keyup = false;
     constexpr jint kKeyboardControllerId = 0x40000000;
     constexpr jint kAndroidJoystickDeviceType = 2;
     const auto send_keyboard_movement = [&](jlong timestamp) {
@@ -953,6 +1142,72 @@ int main(int argc, char **argv)
                             SDL_GetKeyName(key), key_down ? "down" : "up",
                             (int)event.key.keysym.scancode,
                             (unsigned)event.key.keysym.mod);
+
+                if (capture_movement_key) {
+                    if (!key_down || event.key.repeat)
+                        break;
+                    if (key == SDLK_ESCAPE) {
+                        capture_movement_key = false;
+                        suppress_escape_keyup = true;
+                        SDL_ShowSimpleMessageBox(
+                            SDL_MESSAGEBOX_INFORMATION,
+                            "Epic Citadel controls", "Key binding cancelled.",
+                            window);
+                        SDL_FlushEvent(SDL_KEYDOWN);
+                        break;
+                    }
+                    if (event.key.keysym.mod &
+                        (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) {
+                        SDL_ShowSimpleMessageBox(
+                            SDL_MESSAGEBOX_WARNING,
+                            "Epic Citadel controls",
+                            "Key combinations are not supported. Press one key.",
+                            window);
+                        SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
+                        break;
+                    }
+                    if (reserved_movement_key(key)) {
+                        SDL_ShowSimpleMessageBox(
+                            SDL_MESSAGEBOX_WARNING,
+                            "Epic Citadel controls",
+                            "That key is reserved by the host. Choose another key.",
+                            window);
+                        SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
+                        break;
+                    }
+                    if (!movement_bindings.set(
+                            pending_movement_rebind, (int)key)) {
+                        SDL_ShowSimpleMessageBox(
+                            SDL_MESSAGEBOX_WARNING,
+                            "Epic Citadel controls",
+                            "That key is already assigned. Choose a different key.",
+                            window);
+                        SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
+                        break;
+                    }
+
+                    capture_movement_key = false;
+                    save_movement_bindings(settings_path, movement_bindings,
+                                           &settings, &saved_settings);
+                    const std::string rebound_key = movement_key_name(
+                        movement_bindings, pending_movement_rebind);
+                    fprintf(stderr, "OpenCitadel: rebound movement key to %s\n",
+                            rebound_key.c_str());
+                    SDL_ShowSimpleMessageBox(
+                        SDL_MESSAGEBOX_INFORMATION,
+                        "Epic Citadel controls", "Key binding saved.", window);
+                    SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
+                    break;
+                }
+
+                if (suppress_escape_keyup && key == SDLK_ESCAPE) {
+                    if (!key_down) {
+                        suppress_escape_keyup = false;
+                        break;
+                    }
+                    suppress_escape_keyup = false;
+                }
+
                 const bool is_enter = key == SDLK_RETURN ||
                                       key == SDLK_KP_ENTER;
                 if (is_enter && !key_down && alt_enter_toggled) {
@@ -977,7 +1232,20 @@ int main(int argc, char **argv)
                 if (key == SDLK_F1) {
                     if (key_down && !event.key.repeat) {
                         const std::string controls =
-                            "W/A/S/D move. Click the ground to walk and "
+                            std::string("Move: ") +
+                            movement_key_name(
+                                movement_bindings,
+                                open_citadel::MovementKey::Forward) + "/" +
+                            movement_key_name(
+                                movement_bindings,
+                                open_citadel::MovementKey::Left) + "/" +
+                            movement_key_name(
+                                movement_bindings,
+                                open_citadel::MovementKey::Backward) + "/" +
+                            movement_key_name(
+                                movement_bindings,
+                                open_citadel::MovementKey::Right) +
+                            " move. Click the ground to walk and "
                             "drag with the mouse to look around. F2 opens "
                             "settings; Escape sends Back to the game. Window "
                             "size and fullscreen apply after restarting.\n\n"
@@ -994,16 +1262,41 @@ int main(int argc, char **argv)
                     break;
                 }
                 if (key == SDLK_F2) {
-                    if (key_down && !event.key.repeat)
-                        show_settings_dialog(window, settings_path, &settings,
-                                             &saved_settings);
+                    if (key_down && !event.key.repeat) {
+                        if (mouse_touch_buttons) {
+                            mouse_touch_buttons = 0;
+                            native_input(
+                                env, activity, android_input::kActionUp,
+                                (int)std::lround(touch_x),
+                                (int)std::lround(touch_y), 0, event_time);
+                        }
+                        if (keyboard_movement.clear())
+                            send_keyboard_movement(event_time);
+                        const bool rebind_requested = show_settings_dialog(
+                            window, settings_path, &settings, &saved_settings,
+                            &movement_bindings, &pending_movement_rebind);
+                        SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
+                        if (rebind_requested) {
+                            char prompt[160];
+                            std::snprintf(
+                                prompt, sizeof(prompt),
+                                "Dismiss this message, then press a key for %s. "
+                                "Escape cancels.",
+                                movement_key_label(pending_movement_rebind));
+                            SDL_ShowSimpleMessageBox(
+                                SDL_MESSAGEBOX_INFORMATION,
+                                "Epic Citadel controls", prompt, window);
+                            SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
+                            capture_movement_key = true;
+                        }
+                    }
                     break;
                 }
                 if (event.key.repeat)
                     break;
                 open_citadel::MovementKey movement_key;
                 if (open_citadel::movement_key_from_keycode(
-                        (int)key, &movement_key)) {
+                        (int)key, movement_bindings, &movement_key)) {
                     if (keyboard_movement.set(movement_key, key_down))
                         send_keyboard_movement(event_time);
                     break;

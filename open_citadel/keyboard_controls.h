@@ -15,19 +15,109 @@ struct MovementAxes {
     float y;
 };
 
-inline bool movement_key_from_keycode(int key, MovementKey *movement_key)
+inline int normalize_movement_keycode(int key)
+{
+    if (key >= 'A' && key <= 'Z')
+        key += 'a' - 'A';
+    return key;
+}
+
+class MovementKeyBindings {
+public:
+    bool configure(int forward, int backward, int left, int right)
+    {
+        forward = normalize_movement_keycode(forward);
+        backward = normalize_movement_keycode(backward);
+        left = normalize_movement_keycode(left);
+        right = normalize_movement_keycode(right);
+        if (!forward || !backward || !left || !right ||
+            forward == backward || forward == left || forward == right ||
+            backward == left || backward == right || left == right)
+            return false;
+        forward_ = forward;
+        backward_ = backward;
+        left_ = left;
+        right_ = right;
+        return true;
+    }
+
+    bool set(MovementKey key, int key_code)
+    {
+        int *binding = binding_for(key);
+        key_code = normalize_movement_keycode(key_code);
+        if (!binding || !key_code)
+            return false;
+
+        if ((key != MovementKey::Forward && forward_ == key_code) ||
+            (key != MovementKey::Backward && backward_ == key_code) ||
+            (key != MovementKey::Left && left_ == key_code) ||
+            (key != MovementKey::Right && right_ == key_code))
+            return false;
+
+        *binding = key_code;
+        return true;
+    }
+
+    int key_code(MovementKey key) const
+    {
+        switch (key) {
+        case MovementKey::Forward: return forward_;
+        case MovementKey::Backward: return backward_;
+        case MovementKey::Left: return left_;
+        case MovementKey::Right: return right_;
+        }
+        return 0;
+    }
+
+    void reset()
+    {
+        forward_ = 'w';
+        backward_ = 's';
+        left_ = 'a';
+        right_ = 'd';
+    }
+
+private:
+    int *binding_for(MovementKey key)
+    {
+        switch (key) {
+        case MovementKey::Forward: return &forward_;
+        case MovementKey::Backward: return &backward_;
+        case MovementKey::Left: return &left_;
+        case MovementKey::Right: return &right_;
+        }
+        return nullptr;
+    }
+
+    int forward_ = 'w';
+    int backward_ = 's';
+    int left_ = 'a';
+    int right_ = 'd';
+};
+
+inline bool movement_key_from_keycode(int key,
+                                      const MovementKeyBindings &bindings,
+                                      MovementKey *movement_key)
 {
     if (!movement_key)
         return false;
-    if (key >= 'A' && key <= 'Z')
-        key += 'a' - 'A';
-    switch (key) {
-    case 'w': *movement_key = MovementKey::Forward; return true;
-    case 's': *movement_key = MovementKey::Backward; return true;
-    case 'a': *movement_key = MovementKey::Left; return true;
-    case 'd': *movement_key = MovementKey::Right; return true;
-    default: return false;
-    }
+    key = normalize_movement_keycode(key);
+    if (key == bindings.key_code(MovementKey::Forward))
+        *movement_key = MovementKey::Forward;
+    else if (key == bindings.key_code(MovementKey::Backward))
+        *movement_key = MovementKey::Backward;
+    else if (key == bindings.key_code(MovementKey::Left))
+        *movement_key = MovementKey::Left;
+    else if (key == bindings.key_code(MovementKey::Right))
+        *movement_key = MovementKey::Right;
+    else
+        return false;
+    return true;
+}
+
+inline bool movement_key_from_keycode(int key, MovementKey *movement_key)
+{
+    return movement_key_from_keycode(key, MovementKeyBindings{}, movement_key);
 }
 
 class KeyboardMovementState {

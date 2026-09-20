@@ -20,7 +20,9 @@ your own Epic Citadel 1.07 XAPK.
 
 Click the ground to walk and drag with either mouse button to look around.
 W/A/S/D are intended to move; live end-to-end keyboard behavior is still being
-verified. F1 shows controls, F2 opens desktop settings, and Escape sends Back.
+verified. F1 shows controls, and F2 opens desktop settings. Choose
+**Controls...** there to rebind movement keys; Escape cancels a rebind and
+**Reset to WASD** restores defaults. Escape outside key capture sends Back.
 Settings are saved under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
 
 The host runs as a 32-bit Windows process and supports 64-bit Windows. Keep the

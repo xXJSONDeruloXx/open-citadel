@@ -20,6 +20,10 @@ struct UserSettings {
     bool vsync = true;
     float mouse_sensitivity = 1.0f;
     bool invert_mouse_y = false;
+    std::string move_forward = "w";
+    std::string move_backward = "s";
+    std::string move_left = "a";
+    std::string move_right = "d";
 };
 
 inline std::string_view trim_settings_value(std::string_view value)
@@ -94,6 +98,22 @@ inline bool parse_settings_boolean(std::string_view value, bool *result)
     return false;
 }
 
+inline bool parse_settings_key_name(std::string_view value,
+                                    std::string *result)
+{
+    if (!result)
+        return false;
+    value = trim_settings_value(value);
+    if (value.empty() || value.size() > 32)
+        return false;
+    for (unsigned char ch : value) {
+        if (ch < 0x20 || ch > 0x7e)
+            return false;
+    }
+    result->assign(value);
+    return true;
+}
+
 inline void read_user_settings(std::istream &input, UserSettings *settings)
 {
     if (!settings)
@@ -125,6 +145,14 @@ inline void read_user_settings(std::istream &input, UserSettings *settings)
                                 &settings->mouse_sensitivity);
         } else if (key == "invert_mouse_y") {
             parse_settings_boolean(value, &settings->invert_mouse_y);
+        } else if (key == "move_forward") {
+            parse_settings_key_name(value, &settings->move_forward);
+        } else if (key == "move_backward") {
+            parse_settings_key_name(value, &settings->move_backward);
+        } else if (key == "move_left") {
+            parse_settings_key_name(value, &settings->move_left);
+        } else if (key == "move_right") {
+            parse_settings_key_name(value, &settings->move_right);
         }
     }
 }
@@ -142,7 +170,11 @@ inline void write_user_settings(std::ostream &output,
            << "mouse_sensitivity=" << std::fixed << std::setprecision(2)
            << settings.mouse_sensitivity << '\n'
            << "invert_mouse_y=" << (settings.invert_mouse_y ? "true" : "false")
-           << '\n';
+           << '\n'
+           << "move_forward=" << settings.move_forward << '\n'
+           << "move_backward=" << settings.move_backward << '\n'
+           << "move_left=" << settings.move_left << '\n'
+           << "move_right=" << settings.move_right << '\n';
 }
 
 } // namespace open_citadel

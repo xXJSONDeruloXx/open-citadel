@@ -11,9 +11,10 @@ scene. Mouse clicks and drags are translated to the original touch controls,
 Windows SDL audio handles the Java MP3-song/WAV-sound callbacks, and display
 and mouse-look settings persist. A portable Windows ZIP now bundles the host,
 runtime DLLs, donor importer, and dependency notices without proprietary game
-data. Live keyboard/gamepad behavior and OpenSL ES effects still need work.
-Keyboard event translation and host shortcuts are implemented, but native key
-delivery has not yet been verified.
+data. F2 also provides persistent movement-key rebinding. Live keyboard/gamepad
+behavior and OpenSL ES effects still need work. Keyboard event translation and
+host shortcuts are implemented, but native key delivery has not yet been
+verified.
 The project began from the compatibility substrate developed in
 `i-port-katamari`, but Open Citadel is now a standalone project and is not
 limited to PortMaster.
@@ -34,9 +35,9 @@ NVIDIA GeForce RTX 4090 through ANGLE. The bring-up has verified:
 
 This is a working bring-up, not a finished port. The Java audio callback path
 now plays donor music and supports WAV sound callbacks, but OpenSL ES is not
-implemented and live keyboard/gamepad behavior still needs verification. A
-rebindable controls UI, clean-machine validation, and an installer remain
-future work; the portable ZIP can be generated with CPack.
+implemented and live keyboard/gamepad behavior still needs verification.
+Clean-machine validation and an installer remain future work; the portable ZIP
+can be generated with CPack.
 
 See [OPEN_CITADEL.md](OPEN_CITADEL.md) for detailed donor-format notes,
 architecture, reverse-engineering findings, and the milestone tracker.
@@ -84,7 +85,10 @@ mouse button looks around; W/A/S/D send a virtual movement-stick input. On
 first launch, the host creates
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`. F2 opens a native settings dialog for
 live mouse-look sensitivity, vertical inversion, and VSync changes; those
-choices are saved. `OPEN_CITADEL_CONFIG` can select a different settings file.
+choices are saved. Select **Controls...** in that dialog to rebind Forward,
+Backward, Left, and Right; Escape cancels a rebind and Reset to WASD restores
+the defaults. Bindings persist in the same settings file.
+`OPEN_CITADEL_CONFIG` can select a different settings file.
 
 The settings file also stores window width/height and fullscreen preference;
 those display choices apply on the next launch because live Win32 viewport
@@ -111,9 +115,9 @@ before launching. Fullscreen at the desktop's 3440×1440 size and windowed
 1920×1080 startup have both rendered successfully. F11 and Alt+Enter currently
 report that live display-mode changes are unavailable. F1 shows help; Escape
 sends Back to the game. WASD movement is wired through the guest joystick
-callback but still needs live end-to-end verification. Rebindable controls and
-gamepad behavior remain future work. VSync is on by default and can be changed
-with F2 or `OPEN_CITADEL_VSYNC=0`.
+callback but still needs live end-to-end verification. Rebindable movement
+controls are available from F2; gamepad behavior remains future work. VSync is
+on by default and can be changed with F2 or `OPEN_CITADEL_VSYNC=0`.
 
 Windows audio uses SDL output with mpg123 for MP3 music and SDL decoding for
 WAV effects. `LOADER_TRACE=1` prints audio-device and callback diagnostics.
