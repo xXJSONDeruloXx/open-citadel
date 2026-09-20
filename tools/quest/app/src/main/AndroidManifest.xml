@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:installLocation="auto">
+
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="true"
+        android:version="1" />
+
+    <application
+        android:allowBackup="false"
+        android:label="Open Citadel VR"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+
+        <meta-data
+            android:name="com.oculus.supportedDevices"
+            android:value="quest2|questpro|quest3|quest3s" />
+
+        <activity
+            android:name="android.app.NativeActivity"
+            android:configChanges="keyboardHidden|keyboard|navigation|orientation|screenSize|screenLayout|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape">
+
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="open-citadel-quest" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
