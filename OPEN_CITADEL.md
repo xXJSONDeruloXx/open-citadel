@@ -197,11 +197,13 @@ shaders. Mouse clicks and held drags reach the game's touch UI and camera.
 VSync defaults on, with `OPEN_CITADEL_VSYNC=0` as an override.
 Windowed resolution is selected at launch with `OPEN_CITADEL_WIDTH` and
 `OPEN_CITADEL_HEIGHT`; `OPEN_CITADEL_FULLSCREEN=1` starts borderless desktop
-fullscreen. Startup rendering has also been verified at 1024x768 (4:3) and
-2560x1080 (21:9 ultrawide); width and height are independently selectable
-within 320–7680 by 240–4320, with no preset aspect-ratio list. The Windows
-window is resizable at runtime (320x240 minimum). On `SDL_WINDOWEVENT_SIZE_CHANGED`,
-the host queries the GL drawable size, updates the guest through
+fullscreen. Fresh Windows runs were visually checked at 1024x768 (4:3) and
+2560x1080 (21:9 ultrawide); the scene filled each requested viewport without
+letterboxing or obvious aspect distortion. Width and height are independently
+selectable within 320–7680 by 240–4320, with no preset aspect-ratio list. The
+Windows window is resizable at runtime (320x240 minimum). On
+`SDL_WINDOWEVENT_SIZE_CHANGED`, the host queries the GL drawable size, updates
+the guest through
 `NativeCallback_PostInitUpdate`, and scales mouse/touch input into drawable
 pixels. The windowed size is saved after a 500 ms resize debounce. A live
 1280x720-to-1203x720 resize was visually checked with the scene still rendering.
