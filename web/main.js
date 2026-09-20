@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/GLTFLoader.js';
 
-const MODEL='https://cdn.jsdelivr.net/gh/gwihlidal/svc-mesh@723046151409471e9dd90b80d347bf33c3364d6d/data/EpicCitadel.glb';
+const MODEL='https://cdn.jsdelivr.net/gh/gwihlidal/svc-mesh@d7281abc9be106408621da05797ad7efb0d6aaeb/data/EpicCitadel.glb';
 const canvas=document.querySelector('#view'),status=document.querySelector('#status');
 const progress=document.querySelector('#progress'),bar=progress.querySelector('i'),enter=document.querySelector('#enter'),touch=document.querySelector('#touch');
 
