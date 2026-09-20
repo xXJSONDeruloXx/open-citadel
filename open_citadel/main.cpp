@@ -1386,7 +1386,10 @@ int main(int argc, char **argv)
         native_mouse_axes_active = false;
         send_native_mouse_look_axes(0.0f, 0.0f, timestamp);
         if (getenv("OPEN_CITADEL_TRACE_INPUT"))
-            fprintf(stderr, "OpenCitadel: native mouse look captured\n");
+            fprintf(stderr,
+                    "OpenCitadel: native mouse look captured "
+                    "(relative-mode=%d)\n",
+                    SDL_GetRelativeMouseMode() == SDL_TRUE ? 1 : 0);
     };
 
 #if defined(_WIN32)
@@ -1671,6 +1674,13 @@ int main(int argc, char **argv)
                 break;
             }
             case SDL_MOUSEMOTION:
+                if (getenv("OPEN_CITADEL_TRACE_INPUT"))
+                    fprintf(stderr,
+                            "OpenCitadel: SDL mouse motion x=%d y=%d "
+                            "xrel=%d yrel=%d captured=%d\n",
+                            event.motion.x, event.motion.y,
+                            event.motion.xrel, event.motion.yrel,
+                            native_mouse_look_captured ? 1 : 0);
                 if (native_mouse_look_captured) {
                     pending_mouse_delta_x +=
                         static_cast<float>(event.motion.xrel);
