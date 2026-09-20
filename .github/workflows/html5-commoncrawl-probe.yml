@@ -1,0 +1,32 @@
+name: Probe Common Crawl HTML5 payloads
+
+on:
+  push:
+    branches:
+      - feat/html5-revival
+    paths:
+      - "tools/html5_commoncrawl_probe.py"
+      - ".github/workflows/html5-commoncrawl-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: html5-commoncrawl-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe 2013 Common Crawl indexes
+        run: python3 tools/html5_commoncrawl_probe.py
+      - name: Print report
+        if: always()
+        run: |
+          if [ -f html5-commoncrawl-probe.json ]; then
+            python3 -m json.tool html5-commoncrawl-probe.json
+          fi
