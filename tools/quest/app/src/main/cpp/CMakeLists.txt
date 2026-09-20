@@ -5,9 +5,14 @@ find_package(OpenXR REQUIRED CONFIG)
 
 add_library(open-citadel-quest SHARED quest_probe.cpp)
 target_compile_features(open-citadel-quest PRIVATE cxx_std_20)
-target_compile_definitions(open-citadel-quest PRIVATE XR_USE_PLATFORM_ANDROID)
+target_compile_definitions(open-citadel-quest PRIVATE
+    XR_USE_PLATFORM_ANDROID
+    XR_USE_GRAPHICS_API_OPENGL_ES
+)
 target_link_libraries(open-citadel-quest PRIVATE
     OpenXR::openxr_loader
     android
     log
+    EGL
+    GLESv3
 )
