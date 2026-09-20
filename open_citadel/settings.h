@@ -1,0 +1,148 @@
+#pragma once
+
+#include <algorithm>
+#include <cerrno>
+#include <cmath>
+#include <cstddef>
+#include <cstdlib>
+#include <iomanip>
+#include <istream>
+#include <ostream>
+#include <string>
+#include <string_view>
+
+namespace open_citadel {
+
+struct UserSettings {
+    int width = 1280;
+    int height = 720;
+    bool fullscreen = false;
+    bool vsync = true;
+    float mouse_sensitivity = 1.0f;
+    bool invert_mouse_y = false;
+};
+
+inline std::string_view trim_settings_value(std::string_view value)
+{
+    constexpr std::string_view whitespace = " \t\r\n";
+    const std::size_t first = value.find_first_not_of(whitespace);
+    if (first == std::string_view::npos)
+        return {};
+    const std::size_t last = value.find_last_not_of(whitespace);
+    return value.substr(first, last - first + 1);
+}
+
+inline bool parse_settings_integer(std::string_view value, int minimum,
+                                   int maximum, int *result)
+{
+    if (!result || value.empty())
+        return false;
+    const std::string text(value);
+    char *end = nullptr;
+    errno = 0;
+    const long parsed = std::strtol(text.c_str(), &end, 10);
+    if (errno || end == text.c_str() || !end || *end)
+        return false;
+    *result = static_cast<int>(std::clamp<long>(parsed, minimum, maximum));
+    return true;
+}
+
+inline bool parse_settings_float(std::string_view value, float minimum,
+                                 float maximum, float *result)
+{
+    if (!result || value.empty())
+        return false;
+    const std::string text(value);
+    char *end = nullptr;
+    errno = 0;
+    const float parsed = std::strtof(text.c_str(), &end);
+    if (errno || end == text.c_str() || !end || *end || !std::isfinite(parsed))
+        return false;
+    *result = std::clamp(parsed, minimum, maximum);
+    return true;
+}
+
+inline bool settings_text_equals(std::string_view value,
+                                 std::string_view expected)
+{
+    if (value.size() != expected.size())
+        return false;
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        char ch = value[i];
+        if (ch >= 'A' && ch <= 'Z')
+            ch = static_cast<char>(ch - 'A' + 'a');
+        if (ch != expected[i])
+            return false;
+    }
+    return true;
+}
+
+inline bool parse_settings_boolean(std::string_view value, bool *result)
+{
+    if (!result)
+        return false;
+    if (value == "1" || settings_text_equals(value, "true") ||
+        settings_text_equals(value, "on")) {
+        *result = true;
+        return true;
+    }
+    if (value == "0" || settings_text_equals(value, "false") ||
+        settings_text_equals(value, "off")) {
+        *result = false;
+        return true;
+    }
+    return false;
+}
+
+inline void read_user_settings(std::istream &input, UserSettings *settings)
+{
+    if (!settings)
+        return;
+
+    std::string line;
+    while (std::getline(input, line)) {
+        const std::string_view trimmed = trim_settings_value(line);
+        if (trimmed.empty() || trimmed.front() == '#' || trimmed.front() == ';')
+            continue;
+        const std::size_t separator = trimmed.find('=');
+        if (separator == std::string_view::npos)
+            continue;
+
+        const std::string_view key =
+            trim_settings_value(trimmed.substr(0, separator));
+        const std::string_view value =
+            trim_settings_value(trimmed.substr(separator + 1));
+        if (key == "width") {
+            parse_settings_integer(value, 320, 7680, &settings->width);
+        } else if (key == "height") {
+            parse_settings_integer(value, 240, 4320, &settings->height);
+        } else if (key == "fullscreen") {
+            parse_settings_boolean(value, &settings->fullscreen);
+        } else if (key == "vsync") {
+            parse_settings_boolean(value, &settings->vsync);
+        } else if (key == "mouse_sensitivity") {
+            parse_settings_float(value, 0.1f, 4.0f,
+                                &settings->mouse_sensitivity);
+        } else if (key == "invert_mouse_y") {
+            parse_settings_boolean(value, &settings->invert_mouse_y);
+        }
+    }
+}
+
+inline void write_user_settings(std::ostream &output,
+                                const UserSettings &settings)
+{
+    output << "# Open Citadel desktop settings. Environment variables override "
+              "these values.\n"
+           << "# Window dimensions and fullscreen mode apply after restart.\n"
+           << "width=" << settings.width << '\n'
+           << "height=" << settings.height << '\n'
+           << "fullscreen=" << (settings.fullscreen ? "true" : "false") << '\n'
+           << "vsync=" << (settings.vsync ? "true" : "false") << '\n'
+           << "mouse_sensitivity=" << std::fixed << std::setprecision(2)
+           << settings.mouse_sensitivity << '\n'
+           << "invert_mouse_y=" << (settings.invert_mouse_y ? "true" : "false")
+           << '\n';
+}
+
+} // namespace open_citadel

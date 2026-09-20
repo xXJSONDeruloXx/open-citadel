@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 
@@ -35,6 +36,7 @@
 #include "gles2_probe.h"
 #include "android_input_codes.h"
 #include "keyboard_controls.h"
+#include "settings.h"
 
 extern "C" void android_egl_init(SDL_Window *window, SDL_GLContext gl);
 
@@ -83,15 +85,17 @@ extern "C" int so_after_relocate(so_module *mod)
     return missing ? 1 : 0;
 }
 
-static int env_int(const char *name, int fallback)
+static int env_int(const char *name, int fallback, int minimum, int maximum)
 {
     const char *value = getenv(name);
     if (!value || !*value)
         return fallback;
     char *end = nullptr;
+    errno = 0;
     long parsed = strtol(value, &end, 10);
-    return end && !*end && parsed > 0 && parsed <= INT_MAX
-        ? (int)parsed : fallback;
+    if (errno || !end || end == value || *end)
+        return fallback;
+    return (int)std::clamp<long>(parsed, minimum, maximum);
 }
 
 static float env_float(const char *name, float fallback,
@@ -121,6 +125,194 @@ static bool env_bool(const char *name, bool fallback)
         SDL_strcasecmp(value, "off") == 0)
         return false;
     return fallback;
+}
+
+static std::filesystem::path user_settings_path()
+{
+    const char *override_path = getenv("OPEN_CITADEL_CONFIG");
+    if (override_path && *override_path)
+        return std::filesystem::u8path(override_path);
+
+    char *preference_directory = SDL_GetPrefPath("OpenCitadel", "EpicCitadel");
+    if (!preference_directory) {
+        fprintf(stderr, "OpenCitadel: SDL_GetPrefPath: %s\n", SDL_GetError());
+        return {};
+    }
+    const std::filesystem::path path =
+        std::filesystem::u8path(preference_directory) / "settings.ini";
+    SDL_free(preference_directory);
+    return path;
+}
+
+static bool load_user_settings(const std::filesystem::path &path,
+                               open_citadel::UserSettings *settings)
+{
+    if (path.empty() || !settings)
+        return false;
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return false;
+    open_citadel::UserSettings loaded = *settings;
+    open_citadel::read_user_settings(input, &loaded);
+    if (input.bad())
+        return false;
+    *settings = loaded;
+    return true;
+}
+
+static bool save_user_settings(const std::filesystem::path &path,
+                               const open_citadel::UserSettings &settings)
+{
+    if (path.empty())
+        return false;
+
+    std::error_code error;
+    if (!path.parent_path().empty()) {
+        std::filesystem::create_directories(path.parent_path(), error);
+        if (error) {
+            fprintf(stderr, "OpenCitadel: cannot create settings directory: %s\n",
+                    error.message().c_str());
+            return false;
+        }
+    }
+
+    std::filesystem::path temporary = path;
+    temporary += ".tmp";
+    {
+        std::ofstream output(temporary,
+                             std::ios::binary | std::ios::out | std::ios::trunc);
+        if (!output) {
+            fprintf(stderr, "OpenCitadel: cannot write settings file %s\n",
+                    path.string().c_str());
+            return false;
+        }
+        open_citadel::write_user_settings(output, settings);
+        output.flush();
+        if (!output) {
+            fprintf(stderr, "OpenCitadel: failed writing settings file %s\n",
+                    path.string().c_str());
+            output.close();
+            std::error_code ignored;
+            std::filesystem::remove(temporary, ignored);
+            return false;
+        }
+        output.close();
+        if (!output) {
+            fprintf(stderr, "OpenCitadel: failed closing settings file %s\n",
+                    path.string().c_str());
+            std::error_code ignored;
+            std::filesystem::remove(temporary, ignored);
+            return false;
+        }
+    }
+
+#if defined(_WIN32)
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        error = std::error_code((int)GetLastError(), std::system_category());
+#else
+    std::filesystem::rename(temporary, path, error);
+#endif
+    if (error) {
+        fprintf(stderr, "OpenCitadel: cannot replace settings file %s: %s\n",
+                path.string().c_str(), error.message().c_str());
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return false;
+    }
+    return true;
+}
+
+static void show_settings_dialog(SDL_Window *window,
+                                const std::filesystem::path &settings_path,
+                                open_citadel::UserSettings *settings,
+                                open_citadel::UserSettings *saved_settings)
+{
+    if (!window || !settings || !saved_settings)
+        return;
+
+    const SDL_MessageBoxButtonData buttons[] = {
+        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT |
+             SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Done"},
+        {0, 1, "Sensitivity -"},
+        {0, 2, "Sensitivity +"},
+        {0, 3, "Toggle Y inversion"},
+        {0, 4, "Toggle VSync"},
+        {0, 5, "Reset mouse"},
+    };
+
+    for (;;) {
+        char message[768];
+        std::snprintf(
+            message, sizeof(message),
+            "Mouse sensitivity: %.1f\nVertical look: %s\nVSync: %s\n\n"
+            "Window: %d x %d (%s)\n"
+            "Window size and fullscreen apply after restarting.\n"
+            "Settings file: %s",
+            settings->mouse_sensitivity,
+            settings->invert_mouse_y ? "inverted" : "normal",
+            settings->vsync ? "on" : "off", settings->width,
+            settings->height, settings->fullscreen ? "fullscreen" : "windowed",
+            settings_path.empty() ? "unavailable" : settings_path.string().c_str());
+        const SDL_MessageBoxData data = {
+            SDL_MESSAGEBOX_INFORMATION,
+            window,
+            "Epic Citadel settings",
+            message,
+            (int)(sizeof(buttons) / sizeof(buttons[0])),
+            buttons,
+            nullptr,
+        };
+        int pressed = 0;
+        if (SDL_ShowMessageBox(&data, &pressed) != 0) {
+            fprintf(stderr, "OpenCitadel: settings dialog failed: %s\n",
+                    SDL_GetError());
+            return;
+        }
+
+        bool changed = false;
+        switch (pressed) {
+        case 1:
+            settings->mouse_sensitivity = std::max(
+                0.1f, std::round((settings->mouse_sensitivity - 0.1f) * 10.0f) /
+                          10.0f);
+            changed = true;
+            break;
+        case 2:
+            settings->mouse_sensitivity = std::min(
+                4.0f, std::round((settings->mouse_sensitivity + 0.1f) * 10.0f) /
+                          10.0f);
+            changed = true;
+            break;
+        case 3:
+            settings->invert_mouse_y = !settings->invert_mouse_y;
+            changed = true;
+            break;
+        case 4:
+            settings->vsync = !settings->vsync;
+            if (SDL_GL_SetSwapInterval(settings->vsync ? 1 : 0) != 0)
+                fprintf(stderr, "OpenCitadel: swap interval change failed: %s\n",
+                        SDL_GetError());
+            changed = true;
+            break;
+        case 5:
+            settings->mouse_sensitivity = 1.0f;
+            settings->invert_mouse_y = false;
+            changed = true;
+            break;
+        default:
+            return;
+        }
+
+        if (changed) {
+            saved_settings->vsync = settings->vsync;
+            saved_settings->mouse_sensitivity = settings->mouse_sensitivity;
+            saved_settings->invert_mouse_y = settings->invert_mouse_y;
+            if (!save_user_settings(settings_path, *saved_settings))
+                fprintf(stderr,
+                        "OpenCitadel: settings are active but were not saved\n");
+        }
+    }
 }
 
 static bool file_is_present(const std::filesystem::path &path)
@@ -162,7 +354,8 @@ static std::string default_game_dir(const char *argv0, const char *abi_dir)
     return {};
 }
 
-static SDL_Window *create_window(int width, int height, SDL_GLContext *out_gl)
+static SDL_Window *create_window(int width, int height, bool fullscreen,
+                                 SDL_GLContext *out_gl)
 {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -182,7 +375,7 @@ static SDL_Window *create_window(int width, int height, SDL_GLContext *out_gl)
     /* UE3 keeps its startup viewport dimensions; changing the SDL surface
      * after initialization currently leaves the guest rendering letterboxed. */
 #endif
-    if (env_bool("OPEN_CITADEL_FULLSCREEN", false))
+    if (fullscreen)
         flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     if (getenv("OPEN_CITADEL_HIDDEN"))
         flags |= SDL_WINDOW_HIDDEN;
@@ -372,10 +565,14 @@ int main(int argc, char **argv)
                 "If omitted, searches ./gamedata/epic-citadel-1.07 and "
                 "the matching path beside the executable.\n"
                 "OPEN_CITADEL_GAME_DIR may also select the data directory.\n"
-                "OPEN_CITADEL_WIDTH/HEIGHT choose the window size; "
+                "F1 shows controls; F2 opens saved mouse and VSync settings.\n"
+                "Preferences are stored in %%APPDATA%%\\OpenCitadel\\EpicCitadel "
+                "or OPEN_CITADEL_CONFIG.\n"
+                "OPEN_CITADEL_WIDTH/HEIGHT choose startup window size; "
                 "OPEN_CITADEL_FULLSCREEN=1 starts fullscreen.\n"
                 "OPEN_CITADEL_MOUSE_SENSITIVITY scales drag-look; "
-                "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look.\n");
+                "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look; "
+                "OPEN_CITADEL_VSYNC=0 disables VSync.\n");
         if (argc == 2)
             return 0;
         return 2;
@@ -426,26 +623,53 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    int width = env_int("OPEN_CITADEL_WIDTH", 1280);
-    int height = env_int("OPEN_CITADEL_HEIGHT", 720);
-    const float mouse_sensitivity = env_float(
-        "OPEN_CITADEL_MOUSE_SENSITIVITY", 1.0f, 0.1f, 4.0f);
-    const bool invert_mouse_y = env_bool("OPEN_CITADEL_INVERT_MOUSE_Y", false);
+    const std::filesystem::path settings_path = user_settings_path();
+    open_citadel::UserSettings saved_settings;
+    if (load_user_settings(settings_path, &saved_settings)) {
+        fprintf(stderr, "OpenCitadel: settings=%s\n",
+                settings_path.string().c_str());
+    } else if (!settings_path.empty()) {
+        std::error_code settings_error;
+        const bool exists = std::filesystem::exists(settings_path, settings_error);
+        if (!exists && !settings_error) {
+            if (save_user_settings(settings_path, saved_settings))
+                fprintf(stderr, "OpenCitadel: created settings=%s\n",
+                        settings_path.string().c_str());
+        } else {
+            fprintf(stderr, "OpenCitadel: could not read settings=%s%s%s\n",
+                    settings_path.string().c_str(),
+                    settings_error ? ": " : "",
+                    settings_error ? settings_error.message().c_str() : "");
+        }
+    }
+
+    open_citadel::UserSettings settings = saved_settings;
+    settings.width = env_int("OPEN_CITADEL_WIDTH", settings.width, 320, 7680);
+    settings.height = env_int("OPEN_CITADEL_HEIGHT", settings.height, 240, 4320);
+    settings.fullscreen = env_bool("OPEN_CITADEL_FULLSCREEN", settings.fullscreen);
+    settings.vsync = env_bool("OPEN_CITADEL_VSYNC", settings.vsync);
+    settings.mouse_sensitivity = env_float(
+        "OPEN_CITADEL_MOUSE_SENSITIVITY", settings.mouse_sensitivity, 0.1f, 4.0f);
+    settings.invert_mouse_y = env_bool(
+        "OPEN_CITADEL_INVERT_MOUSE_Y", settings.invert_mouse_y);
+
+    int width = settings.width;
+    int height = settings.height;
     SDL_GLContext gl = nullptr;
-    SDL_Window *window = create_window(width, height, &gl);
+    SDL_Window *window = create_window(width, height, settings.fullscreen, &gl);
     if (!window) {
         fprintf(stderr, "OpenCitadel: GLES2 context creation failed: %s\n",
                 SDL_GetError());
         SDL_Quit();
         return 1;
     }
-    if (env_bool("OPEN_CITADEL_FULLSCREEN", false)) {
+    if (settings.fullscreen) {
         SDL_GL_GetDrawableSize(window, &width, &height);
         fprintf(stderr, "OpenCitadel: fullscreen render size=%dx%d\n",
                 width, height);
     }
 
-    if (SDL_GL_SetSwapInterval(env_bool("OPEN_CITADEL_VSYNC", true) ? 1 : 0) != 0)
+    if (SDL_GL_SetSwapInterval(settings.vsync ? 1 : 0) != 0)
         fprintf(stderr, "OpenCitadel: swap interval unavailable: %s\n",
                 SDL_GetError());
     if (getenv("OPEN_CITADEL_TRACE_INPUT")) {
@@ -457,7 +681,7 @@ int main(int argc, char **argv)
                 (void *)SDL_GetKeyboardFocus(), (void *)window, window_flags);
         fprintf(stderr,
                 "OpenCitadel: mouse sensitivity=%.2f invert-y=%d\n",
-                mouse_sensitivity, invert_mouse_y ? 1 : 0);
+                settings.mouse_sensitivity, settings.invert_mouse_y ? 1 : 0);
     }
     load_gles2_funcs();
     android_egl_init(window, gl);
@@ -685,11 +909,11 @@ int main(int argc, char **argv)
                     const int delta_x = event.motion.x - mouse_x;
                     const int delta_y = event.motion.y - mouse_y;
                     touch_x = std::clamp(
-                        touch_x + delta_x * mouse_sensitivity,
+                        touch_x + delta_x * settings.mouse_sensitivity,
                         0.0f, (float)width - 1.0f);
                     touch_y = std::clamp(
-                        touch_y + delta_y * mouse_sensitivity *
-                            (invert_mouse_y ? -1.0f : 1.0f),
+                        touch_y + delta_y * settings.mouse_sensitivity *
+                            (settings.invert_mouse_y ? -1.0f : 1.0f),
                         0.0f, (float)height - 1.0f);
                     mouse_x = event.motion.x;
                     mouse_y = event.motion.y;
@@ -751,18 +975,27 @@ int main(int argc, char **argv)
                 }
                 if (key == SDLK_F1) {
                     if (key_down && !event.key.repeat) {
-                        const char *controls =
+                        const std::string controls =
                             "W/A/S/D move. Click the ground to walk and "
-                            "drag with the mouse to look around. Escape "
-                            "sends Back to the game. Set OPEN_CITADEL_WIDTH and "
-                            "OPEN_CITADEL_HEIGHT before launch for windowed "
-                            "size; OPEN_CITADEL_FULLSCREEN=1 starts fullscreen. "
-                            "OPEN_CITADEL_MOUSE_SENSITIVITY and "
-                            "OPEN_CITADEL_INVERT_MOUSE_Y tune mouse-look.";
+                            "drag with the mouse to look around. F2 opens "
+                            "settings; Escape sends Back to the game. Window "
+                            "size and fullscreen apply after restarting.\n\n"
+                            "Settings file: " +
+                            (settings_path.empty()
+                                 ? std::string("unavailable")
+                                 : settings_path.string()) +
+                            "\nOPEN_CITADEL_* environment options override "
+                            "the saved file.";
                         SDL_ShowSimpleMessageBox(
                             SDL_MESSAGEBOX_INFORMATION,
-                            "Epic Citadel controls", controls, window);
+                            "Epic Citadel controls", controls.c_str(), window);
                     }
+                    break;
+                }
+                if (key == SDLK_F2) {
+                    if (key_down && !event.key.repeat)
+                        show_settings_dialog(window, settings_path, &settings,
+                                             &saved_settings);
                     break;
                 }
                 if (event.key.repeat)

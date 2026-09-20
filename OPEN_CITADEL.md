@@ -198,7 +198,13 @@ Windowed resolution is selected at launch with `OPEN_CITADEL_WIDTH` and
 fullscreen. Both a 1920x1080 window and 3440x1440 fullscreen launch rendered
 successfully. The Windows window is fixed-size after startup because live UE3
 viewport resizing currently leaves the scene partially black; F11/Alt+Enter
-display a notice instead of switching modes.
+display a notice instead of switching modes. A Windows settings file is
+created under `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width,
+height, fullscreen, VSync, mouse sensitivity, and vertical inversion are
+persistent, and `OPEN_CITADEL_CONFIG` can select another file. F2 opens a
+native options dialog for live mouse-look and VSync changes. Display-mode edits take
+effect after restarting, and matching environment variables override the
+saved values.
 
 The Windows host maps W/A/S/D to a virtual left-stick axis, releases held
 movement on focus loss, and keeps mouse click-to-walk and drag-to-look input.
@@ -247,8 +253,8 @@ platform check, not the current deliverable.
 - [ ] manual end-to-end keyboard delivery
 - [ ] native gamepad behavior and rebindable input settings
 - [ ] OpenSL ES compatibility
-- [ ] live viewport resizing/fullscreen switching and persisted quality-of-life
-      settings
+- [x] persistent Windows display and mouse settings with an F2 options dialog
+- [ ] live viewport resizing/fullscreen switching
 - [ ] robust lifecycle/frame-pacing validation and clean-machine packaging
 - [ ] Windows CI launch/smoke test with donor data supplied privately
 - [ ] ARMHF CI build

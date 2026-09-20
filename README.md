@@ -26,7 +26,7 @@ NVIDIA GeForce RTX 4090 through ANGLE. The bring-up has verified:
 - GLES through ANGLE, with 292 shaders and programs compiled/linked
 - ATITC fallback using the texture caches shipped in the donor
 - visible 3D scene rendering; mouse click/drag reaches the game's touch UI
-- six Win32 ABI, input, and guest-width tests
+- seven Win32 ABI, input, settings, and guest-width tests
 
 This is a working bring-up, not a finished port. The game still starts without
 sound; the new WASD-to-virtual-stick path and gamepad behavior still need live
@@ -68,9 +68,17 @@ in that default location, or pass its path explicitly:
 ```
 
 Clicking the ground walks to that destination. Holding and dragging either
-mouse button looks around; W/A/S/D send a virtual movement-stick input. Mouse
-sensitivity defaults to `1.0` (accepted range `0.1`–`4.0`), and vertical
-look can be inverted. Set either option before launch:
+mouse button looks around; W/A/S/D send a virtual movement-stick input. On
+first launch, the host creates
+`%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`. F2 opens a native settings dialog for
+live mouse-look sensitivity, vertical inversion, and VSync changes; those
+choices are saved. `OPEN_CITADEL_CONFIG` can select a different settings file.
+
+The settings file also stores window width/height and fullscreen preference;
+those display choices apply on the next launch because live Win32 viewport
+resizing/fullscreen switching is not reliable yet. Environment variables
+override matching settings-file values. Mouse sensitivity defaults to `1.0`
+(accepted range `0.1`–`4.0`):
 
 ```powershell
 $env:OPEN_CITADEL_MOUSE_SENSITIVITY = '1.5'
@@ -89,11 +97,11 @@ $env:OPEN_CITADEL_HEIGHT = '1080'
 For borderless desktop fullscreen, set `$env:OPEN_CITADEL_FULLSCREEN = '1'`
 before launching. Fullscreen at the desktop's 3440×1440 size and windowed
 1920×1080 startup have both rendered successfully. F11 and Alt+Enter currently
-report that live mode changes are unavailable. F1 and Escape handlers are
-implemented; WASD movement is wired through the guest joystick callback but
-still needs live end-to-end verification. Rebindable controls and a user-facing,
-persisted settings panel remain future work. VSync is on by default and can be
-disabled with `OPEN_CITADEL_VSYNC=0`.
+report that live display-mode changes are unavailable. F1 shows help; Escape
+sends Back to the game. WASD movement is wired through the guest joystick
+callback but still needs live end-to-end verification. Rebindable controls and
+gamepad behavior remain future work. VSync is on by default and can be changed
+with F2 or `OPEN_CITADEL_VSYNC=0`.
 
 ## Donor policy
 
