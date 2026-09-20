@@ -1,91 +1,72 @@
 #!/usr/bin/env python3
-"""Inspect the archived 2013 Epic Citadel HTML5 deployment.
-
-The script fetches archived metadata/runtime JavaScript only for inspection.
-It never writes Epic runtime/game payloads into the repository.
-"""
+"""Probe archived Epic Citadel HTML5 runtime locations without committing assets."""
 from __future__ import annotations
 
-import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
-AVAILABLE = "https://archive.org/wayback/available"
-WAYBACK_RAW = "https://web.archive.org/web/{timestamp}id_/{original}"
-ROOT = "http://www.unrealengine.com/html5/"
-STAMP_HINT = "20130503"
-OUT = Path("html5-probe.json")
-UA = "Open-Citadel-Archive-Probe/4.0"
+STAMP = "20130504031131"
+ROOTS = (
+    "http://www.unrealengine.com/html5/",
+    "http://unrealengine.com/html5/",
+    "https://www.unrealengine.com/html5/",
+    "https://unrealengine.com/html5/",
+)
+FILES = ("UDKGame_Data.js", "UDKGame-Browser-Shipping.js")
+UA = "Open-Citadel-Archive-Probe/5.0"
 
 
-def get(url: str, timeout: int = 45) -> bytes:
+def fetch(url: str, timeout: int = 45):
     request = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read()
+        return response.geturl(), response.status, dict(response.headers), response.read()
 
 
-def closest(original: str, timestamp: str) -> dict:
-    params = urllib.parse.urlencode({"url": original, "timestamp": timestamp})
-    data = json.loads(get(f"{AVAILABLE}?{params}", 15).decode("utf-8"))
-    snap = data.get("archived_snapshots", {}).get("closest")
-    if not snap or not snap.get("available"):
-        raise RuntimeError(f"no snapshot for {original}")
-    return snap
-
-
-def raw_url(original: str, timestamp: str) -> str:
-    return WAYBACK_RAW.format(
-        timestamp=timestamp,
-        original=urllib.parse.quote(original, safe=":/?=&%"),
-    )
-
-
-def asset_names(text: str) -> list[str]:
-    patterns = (
-        r"""[A-Za-z0-9_./-]+\.(?:data|mem|bin|pak|js|json|ogg|mp3|wav)""",
-        r"""(?:memoryInitializer|filePackagePrefixURL|REMOTE_PACKAGE_BASE|PACKAGE_NAME)[^\n;]{0,300}""",
-    )
-    found: set[str] = set()
-    for pattern in patterns:
-        found.update(re.findall(pattern, text, flags=re.I))
-    return sorted(found)
+def archived(original: str, stamp: str = STAMP) -> str:
+    quoted = urllib.parse.quote(original, safe=":/?=&%")
+    return f"https://web.archive.org/web/{stamp}id_/{quoted}"
 
 
 def main() -> int:
-    root_snap = closest(ROOT, STAMP_HINT)
-    stamp = root_snap["timestamp"]
-    html = get(raw_url(ROOT, stamp)).decode("utf-8", errors="replace")
-    page_refs = sorted(set(re.findall(
-        r"""(?:src|href)\s*=\s*["']([^"'#]+)""", html, flags=re.I
-    )))
+    landing_url = archived(ROOTS[0])
+    final, status, _, body = fetch(landing_url)
+    html = body.decode("utf-8", errors="replace")
+    print(f"LANDING status={status} final={final} bytes={len(body):,}")
+    for filename in FILES:
+        pos = html.find(filename)
+        if pos >= 0:
+            snippet = re.sub(r"\s+", " ", html[max(0, pos-500):pos+500])
+            print(f"HTML-CONTEXT {filename}: {snippet}")
 
-    report: dict[str, object] = {
-        "root_snapshot": root_snap,
-        "landing_bytes": len(html),
-        "page_refs": page_refs,
-        "runtime": {},
-    }
+    success = False
+    for filename in FILES:
+        print(f"\n=== {filename} ===")
+        for root in ROOTS:
+            original = urllib.parse.urljoin(root, filename)
+            url = archived(original)
+            try:
+                final, status, headers, body = fetch(url, 60)
+            except Exception as exc:
+                print(f"MISS {original}: {type(exc).__name__}: {exc}")
+                continue
+            print(
+                f"HIT {original}: status={status} bytes={len(body):,} "
+                f"type={headers.get('Content-Type')} final={final}"
+            )
+            text = body[:1000000].decode("utf-8", errors="replace")
+            refs = sorted(set(re.findall(
+                r"""[A-Za-z0-9_./-]+\.(?:data|mem|bin|pak|js|json|ogg|mp3|wav)""",
+                text,
+                flags=re.I,
+            )))
+            for ref in refs[:80]:
+                print(f"  REF {ref}")
+            success = True
+            break
 
-    print(f"ROOT {stamp} bytes={len(html):,}")
-    for name in ("UDKGame_Data.js", "UDKGame-Browser-Shipping.js"):
-        original = urllib.parse.urljoin(ROOT, name)
-        snap = closest(original, stamp)
-        body = get(raw_url(original, snap["timestamp"]), 90)
-        text = body.decode("utf-8", errors="replace")
-        names = asset_names(text)
-        print(f"RUNTIME {name} stamp={snap['timestamp']} bytes={len(body):,}")
-        for item in names[:150]:
-            print(f"REF {name}: {item}")
-        report["runtime"][name] = {
-            "snapshot": snap,
-            "bytes": len(body),
-            "refs": names,
-        }
-
-    OUT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    return 0
+    return 0 if success else 2
 
 
 if __name__ == "__main__":
