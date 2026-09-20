@@ -45,8 +45,35 @@ def probe_memento(url):
         out.append({"endpoint":ep,"error":f"{type(e).__name__}: {e}"})
     return out
 
+def probe_internet_archive_catalog():
+    queries=(
+      '"UDKGame_Data.data"',
+      '"UDKGame-Browser-Shipping.js.mem"',
+      '"UDKGame-Browser-Shipping.js"',
+      '"Epic Citadel" AND mediatype:software',
+      '"Epic Citadel" AND mediatype:web',
+    )
+    out={}
+    for q in queries:
+      params=[
+        ("q",q),("fl[]","identifier"),("fl[]","title"),("fl[]","description"),
+        ("fl[]","mediatype"),("fl[]","date"),("rows","100"),("output","json")
+      ]
+      ep="https://archive.org/advancedsearch.php?"+urllib.parse.urlencode(params)
+      try:
+        st,final,h,b=get(ep,45)
+        obj=json.loads(b.decode("utf-8","replace"))
+        docs=obj.get("response",{}).get("docs",[])
+        out[q]=docs
+        print("IA-QUERY",q,"RESULTS",len(docs))
+        for d in docs[:100]: print(" IA-HIT",json.dumps(d,sort_keys=True))
+      except Exception as e:
+        out[q]={"error":f"{type(e).__name__}: {e}"}
+        print("IA-ERR",q,out[q])
+    return out
+
 def main():
-    report={}
+    report={"internet_archive_catalog":probe_internet_archive_catalog()}
     for u in TARGETS:
       print("\nTARGET",u)
       a=probe_arquivo(u)
