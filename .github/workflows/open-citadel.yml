@@ -8,14 +8,18 @@ on:
   push:
     branches:
       - main
+      - feat/vr-6dof
   pull_request:
     paths:
       - "OPEN_CITADEL.md"
       - "Makefile"
+      - "vcpkg.json"
+      - "docs/**"
       - "tools/open_citadel_import.py"
       - "tests/test_open_citadel_import.py"
       - "tools/windows/**"
       - "open_citadel/**"
+      - "vr/**"
       - "android/**"
       - "loader/**"
       - "jni/**"
@@ -45,6 +49,35 @@ jobs:
       - name: Run Windows memory test
         run: ctest --test-dir build/windows-host-memory -C Release --output-on-failure
 
+  windows-openxr-probe:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: Win32
+            triplet: x86-windows
+          - arch: x64
+            triplet: x64-windows
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenXR loader
+        shell: pwsh
+        run: |
+          $vcpkg = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          & "$vcpkg\vcpkg.exe" install "openxr-loader:${{ matrix.triplet }}"
+      - name: Configure OpenXR probe
+        shell: pwsh
+        run: |
+          $vcpkg = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          cmake -S tools/windows -B "build/windows-openxr-${{ matrix.triplet }}" -G "Visual Studio 17 2022" -A "${{ matrix.arch }}" `
+            "-DCMAKE_TOOLCHAIN_FILE=$vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}" `
+            -DVCPKG_MANIFEST_MODE=OFF `
+            -DOPEN_CITADEL_BUILD_OPENXR_PROBE=ON
+      - name: Build OpenXR probe
+        run: cmake --build "build/windows-openxr-${{ matrix.triplet }}" --config Release --target open-citadel-openxr-probe --parallel
+
   atc-decoder:
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +100,7 @@ jobs:
       - name: Install 32-bit build/runtime dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-multilib libc6-dev-i386 libsdl2-dev:i386 zlib1g-dev:i386 libbsd-dev:i386 qemu-user
+          sudo apt-get install -y g++-multilib libc6-dev-i386 libsdl2-dev:i386 zlib1g-dev:i386 libbsd-dev:i386 libmpg123-dev:i386 qemu-user
       - name: Verify 32-bit SDL
         env:
           PKG_CONFIG_LIBDIR: /usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig
