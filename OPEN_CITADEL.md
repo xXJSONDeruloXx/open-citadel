@@ -1,8 +1,9 @@
 # Open Citadel experiment
 
-This branch explores running the original **Epic Citadel 1.07** Android UE3
-binary directly on Linux, without Android, as a reusable native compatibility
-layer first and a PortMaster package second.
+This project runs the original **Epic Citadel 1.07** Android UE3 binary
+directly on desktop Windows, without Android. The first target is a native
+32-bit Windows host with keyboard and mouse controls; Linux and other platforms
+can follow as the compatibility layer becomes more portable.
 
 The work is intentionally donor-driven. Proprietary Epic Citadel binaries and
 content are never committed or distributed.
@@ -169,32 +170,41 @@ The remaining gap to audit is ATC interpolated-alpha handling and making the
 probe forward through the GLES2 path instead of assuming Katamari's GLES1
 context.
 
-## Host x86 strategy
+## Native Windows strategy
 
 The bundled x86 engine is especially useful because it eliminates ARM ABI
-noise while validating:
+noise while bringing up the native Windows host. Windows itself must run a
+32-bit process so the engine's pointers, relocations and calling conventions
+match the guest ABI. The current toolchain is Visual Studio 2022 with SDL2 and
+ANGLE; WSL is not part of the target runtime.
+
+The validation sequence is:
 
 1. ELF/bionic relocation
 2. fake JNI registration and Java callbacks
 3. Android asset access
 4. UE3 filesystem startup
 5. GLES2 context and shaders
-6. OpenSL/audio behavior
-7. input/lifecycle sequencing
+6. audio compatibility
+7. native keyboard, mouse and controller input
+8. lifecycle and quality-of-life settings
 
-The current ChatGPT execution container is x86_64 but does not include i386
-glibc development files, a 32-bit SDL2 development stack, or qemu-i386.
-Therefore direct execution cannot be built locally yet. The branch will carry
-a GitHub Actions i386 job that installs the required multilib dependencies and
-runs the x86 harness there. Local static analysis of the x86 donor remains
-available and is used throughout bring-up.
+The Windows loader memory backend and ELF32 ABI parser have dedicated Win32
+tests, and the GLES resolver now has a 32-bit cdecl-to-stdcall regression test.
+The native application target is still in bring-up: Windows replacements for
+the POSIX runtime layer, a complete link, and an actual game launch are the next
+gates. The existing Linux x86 CI build remains useful as a secondary platform
+check, not as the Windows deliverable.
 
 ## Milestones
 
 - [x] decode and validate XAPK/OBB donor
 - [x] transactional donor importer
 - [x] exact UE3JavaApp JNI signature inventory
+- [x] Win32 memory backend and ELF32 ABI smoke tests
+- [x] Win32 GLES cdecl-to-stdcall thunk regression test
 - [ ] generic game profile separated from Katamari-specific host code
+- [ ] native Windows application build and complete symbol resolution
 - [ ] libandroid/AAsset compatibility
 - [ ] UE3JavaApp fake class
 - [ ] all Epic Citadel ELF imports resolve
@@ -206,5 +216,7 @@ available and is used throughout bring-up.
 - [ ] ATITC fallback verified
 - [ ] OpenSL ES compatibility
 - [ ] controller callbacks
+- [ ] WASD and mouse-look controls with rebindable settings
+- [ ] window, resolution, sensitivity and input quality-of-life settings
 - [ ] ARMHF CI build
-- [ ] PortMaster packaging
+- [ ] Linux and other native host backends

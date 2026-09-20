@@ -2,13 +2,20 @@
 #include "so_util.h"
 #include "gl_diag.h"
 #include "thunk_gen.h"
+
+#if defined(_MSC_VER)
+#define OPEN_CITADEL_NOINLINE __declspec(noinline)
+#else
+#define OPEN_CITADEL_NOINLINE __attribute__((noinline))
+#endif
+
 template<typename D, typename R, typename... Args>
 struct ThunkFloatImplPtr;
 
 template<typename D, typename R, typename... Args>
 struct ThunkFloatImplPtr<D, R(*)(Args...)>
 {
-    __attribute__((noinline)) ABI_ATTR static R bridge(Args... args)
+    OPEN_CITADEL_NOINLINE ABI_ATTR static R bridge(Args... args)
     {
         return D::template bridge_impl<Args...>(args...);
     }
@@ -19,13 +26,40 @@ struct ThunkFloatImplPtr<D, R(*)(Args...)>
 template<typename D, typename R, typename... Args>
 struct ThunkFloatImplPtr<D, R(*)(Args...) noexcept>
 {
-    __attribute__((noinline)) ABI_ATTR static R bridge(Args... args)
+    OPEN_CITADEL_NOINLINE ABI_ATTR static R bridge(Args... args)
     {
         return D::template bridge_impl<Args...>(args...);
     }
 
     static constexpr bool has_float_args = has_float_arg<R, Args...>::value;
 };
+
+// Win32 OpenGL entry points use stdcall, while the ELF32 guest calls exports
+// using cdecl. Keep the bridge itself cdecl and let its typed function pointer
+// call preserve the host API's stdcall convention.
+#if defined(_WIN32) && (defined(_M_IX86) || defined(__i386__))
+template<typename D, typename R, typename... Args>
+struct ThunkFloatImplPtr<D, R(__stdcall *)(Args...)>
+{
+    OPEN_CITADEL_NOINLINE ABI_ATTR static R bridge(Args... args)
+    {
+        return D::template bridge_impl<Args...>(args...);
+    }
+
+    static constexpr bool has_float_args = has_float_arg<R, Args...>::value;
+};
+
+template<typename D, typename R, typename... Args>
+struct ThunkFloatImplPtr<D, R(__stdcall *)(Args...) noexcept>
+{
+    OPEN_CITADEL_NOINLINE ABI_ATTR static R bridge(Args... args)
+    {
+        return D::template bridge_impl<Args...>(args...);
+    }
+
+    static constexpr bool has_float_args = has_float_arg<R, Args...>::value;
+};
+#endif
 
 template<auto Def, typename PFN>
 struct ThunkFloatPtr : ThunkFloatImplPtr<ThunkFloatPtr<Def, PFN>, PFN>
@@ -90,7 +124,11 @@ uintptr_t select_either_ptr(void *fn, const char *symname)
 
     // When we have ABI_ATTR, we will thunk these so that they are called in the
     // correct ABI.
-#ifndef NO_ABI_ATTR
+#if defined(_WIN32) && (defined(_M_IX86) || defined(__i386__))
+    // Every Windows GLES entry point must cross the thunk: bypassing it would
+    // make the guest treat a stdcall callee as cdecl and corrupt the stack.
+    return (uintptr_t)T::bridge;
+#elif !defined(NO_ABI_ATTR)
     if constexpr (T::has_float_args)
         return (uintptr_t)T::bridge;
 #endif
@@ -104,9 +142,11 @@ void *resolve_thunked(const char *symbol, int &index, DynLibFunction tab[], void
 {
     void *f = (void*)resolve(symbol);
     if (f) {
-        tab[index++] = (DynLibFunction){symbol, select_either_ptr<F>(f, symbol)};
-        tab[index] = {NULL};
+        tab[index++] = DynLibFunction{symbol, select_either_ptr<F>(f, symbol)};
+        tab[index] = DynLibFunction{nullptr, 0};
     }
 
     return f;
 }
+
+#undef OPEN_CITADEL_NOINLINE

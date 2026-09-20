@@ -64,14 +64,16 @@ void glShaderSource_dump(
 
 	    glad_glShaderSource(shader, count, strings, lengths);
     } else {
-        std::string overridden = read_file(filepath);
+        const std::string filepath_text = filepath.string();
+        std::string overridden = read_file(filepath_text);
         if (!overridden.empty()) {
             const GLchar* ptr = overridden.c_str();
             GLint         len = (GLint)overridden.size();
             glad_glShaderSource(shader, 1, &ptr, &len);
             return;
         } else {
-			warning("Failed to read the overriden shader '%s', using original.", filepath.c_str());
+            warning("Failed to read the overriden shader '%s', using original.",
+                    filepath_text.c_str());
 			glad_glShaderSource(shader, count, strings, lengths);
 		}
 	}

@@ -167,13 +167,15 @@ struct ThunkImpl
 };
 
 // Dig out noexception
-template<typename D, typename R, class... Args, bool EX>
-struct ThunkImpl<D, R(*)(Args...) noexcept(EX)>: ThunkImpl<D, R, Args...>
+template<typename D, typename R, class... Args>
+struct ThunkImpl<D, R(*)(Args...) noexcept>: ThunkImpl<D, R, Args...>
 {
 
 };
 
+#if defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wignored-attributes"
+#endif
 template<typename Callable>
 using return_type_of_t = 
     typename decltype(std::function{std::declval<Callable>()})::result_type;
