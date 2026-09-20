@@ -1,0 +1,21 @@
+name: Epic Citadel payload index probe
+
+on:
+  push:
+    branches:
+      - feat/html5-revival
+    paths:
+      - ".github/workflows/html5-payload-probe.yml"
+      - "tools/html5_payload_probe.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/html5_payload_probe.py
