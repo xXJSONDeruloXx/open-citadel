@@ -71,13 +71,20 @@ jobs:
         shell: pwsh
         run: |
           $vcpkg = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          $broker = if ("${{ matrix.arch }}" -eq "x64") { "ON" } else { "OFF" }
           cmake -S tools/windows -B "build/windows-openxr-${{ matrix.triplet }}" -G "Visual Studio 17 2022" -A "${{ matrix.arch }}" `
             "-DCMAKE_TOOLCHAIN_FILE=$vcpkg\scripts\buildsystems\vcpkg.cmake" `
             "-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}" `
             -DVCPKG_MANIFEST_MODE=OFF `
-            -DOPEN_CITADEL_BUILD_OPENXR_PROBE=ON
-      - name: Build OpenXR probe
-        run: cmake --build "build/windows-openxr-${{ matrix.triplet }}" --config Release --target open-citadel-openxr-probe --parallel
+            -DOPEN_CITADEL_BUILD_OPENXR_PROBE=ON `
+            "-DOPEN_CITADEL_BUILD_OPENXR_BROKER=$broker"
+      - name: Build OpenXR tools
+        shell: pwsh
+        run: |
+          cmake --build "build/windows-openxr-${{ matrix.triplet }}" --config Release --target open-citadel-openxr-probe --parallel
+          if ("${{ matrix.arch }}" -eq "x64") {
+            cmake --build "build/windows-openxr-${{ matrix.triplet }}" --config Release --target open-citadel-openxr-broker --parallel
+          }
 
   quest-arm64-shell:
     runs-on: ubuntu-24.04
