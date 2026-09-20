@@ -65,7 +65,7 @@ jobs:
         shell: pwsh
         run: |
           $vcpkg = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
-          & "$vcpkg\vcpkg.exe" install "openxr-loader:${{ matrix.triplet }}"
+          & "$vcpkg\vcpkg.exe" install "openxr-loader:${{ matrix.triplet }}" --classic
       - name: Configure OpenXR probe
         shell: pwsh
         run: |
