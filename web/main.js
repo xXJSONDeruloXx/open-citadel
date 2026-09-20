@@ -30,14 +30,7 @@ async function loadModel(){
     status.textContent='Downloading Citadel scene…';
     const res=await fetch(MODEL,{mode:'cors',cache:'force-cache'});
     if(!res.ok) throw new Error('HTTP '+res.status+' '+res.statusText);
-    const total=Number(res.headers.get('content-length'))||0;
-    let data;
-    if(res.body&&total){
-      const reader=res.body.getReader(),chunks=[];let loaded=0;
-      while(true){const {done,value}=await reader.read();if(done)break;chunks.push(value);loaded+=value.byteLength;const p=Math.min(100,loaded/total*100);bar.style.width=p+'%';status.textContent='Downloading Citadel scene… '+p.toFixed(0)+'%';}
-      data=new Uint8Array(loaded);let o=0;for(const c of chunks){data.set(c,o);o+=c.byteLength;}
-      data=data.buffer;
-    } else data=await res.arrayBuffer();
+    const data=await res.arrayBuffer();
     status.textContent='Parsing Citadel scene…';
     loader.parse(data,'',onModelLoaded,e=>fail('Citadel parse failed: '+(e?.message||e),e));
   } catch(e){ fail('Citadel download failed: '+(e?.message||e),e); }
