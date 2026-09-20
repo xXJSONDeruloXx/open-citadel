@@ -9,6 +9,11 @@ harness/control/*.armhf
 emulator/runtime/
 emulator/__pycache__/
 
+# Recovered historical Epic Citadel HTML5 deployment. Donor/archive content
+# stays local and is never committed.
+html5-donor/
+html5-runtime/
+
 # qemu-user drops core files in the working directory on a guest abort.
 qemu_*.core
 __pycache__/
