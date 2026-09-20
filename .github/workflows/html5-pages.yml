@@ -27,7 +27,7 @@ jobs:
           test -s web/index.html
           test -s web/main.js
           test -s web/style.css
-          grep -q "EpicCitadel.gltf" web/main.js
+          grep -Eq "EpicCitadel\\.(gltf|glb)" web/main.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web
