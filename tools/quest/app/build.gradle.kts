@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "org.opencitadel.vr"
     compileSdk = 34
+    ndkVersion = "26.3.11579264"
 
     defaultConfig {
         applicationId = "org.opencitadel.vr"
