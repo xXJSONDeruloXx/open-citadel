@@ -160,6 +160,15 @@ void draw_game_tab(const Snapshot &snapshot)
         push_command(command);
     }
     ImGui::TextDisabled("F3 toggles capture; Esc releases the pointer.");
+    if (ImGui::Checkbox("Capture mouse on launch",
+                        &g_ui_settings.capture_mouse_on_launch)) {
+        Command command;
+        command.type = CommandType::SetCaptureMouseOnLaunch;
+        command.enabled = g_ui_settings.capture_mouse_on_launch;
+        push_command(command);
+    }
+    ImGui::TextDisabled(
+        "Starts with the pointer captured next launch; Esc releases it.");
     ImGui::Spacing();
 
     if (ImGui::SliderFloat("Mouse sensitivity",

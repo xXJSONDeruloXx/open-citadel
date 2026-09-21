@@ -23,6 +23,7 @@ struct UserSettings {
     float mouse_sensitivity = 1.0f;
     float resolution_scale = 1.0f;
     bool native_mouse_look = true;
+    bool capture_mouse_on_launch = false;
     bool invert_mouse_y = false;
     std::string move_forward = "w";
     std::string move_backward = "s";
@@ -193,6 +194,8 @@ inline void read_user_settings(std::istream &input, UserSettings *settings)
                                             &settings->resolution_scale);
         } else if (key == "native_mouse_look") {
             parse_settings_boolean(value, &settings->native_mouse_look);
+        } else if (key == "capture_mouse_on_launch") {
+            parse_settings_boolean(value, &settings->capture_mouse_on_launch);
         } else if (key == "invert_mouse_y") {
             parse_settings_boolean(value, &settings->invert_mouse_y);
         } else if (key == "move_forward") {
@@ -226,6 +229,8 @@ inline void write_user_settings(std::ostream &output,
            << "resolution_scale=" << settings.resolution_scale << '\n'
            << "native_mouse_look="
            << (settings.native_mouse_look ? "true" : "false") << '\n'
+           << "capture_mouse_on_launch="
+           << (settings.capture_mouse_on_launch ? "true" : "false") << '\n'
            << "invert_mouse_y=" << (settings.invert_mouse_y ? "true" : "false")
            << '\n'
            << "move_forward=" << settings.move_forward << '\n'

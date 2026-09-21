@@ -96,8 +96,9 @@ the host creates
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`. F2 opens an in-game Dear
 ImGui settings overlay. Its Game tab shows live FPS/frame time and controls
 mouse-look sensitivity, vertical inversion, VSync, the next-launch FPS cap,
-uncapped benchmark mode, native relative mouse look (enabled by default), and
-the game's 3D render scale (50%, 75%, or 100%; 100% by default). The Controls
+uncapped benchmark mode, native relative mouse look (enabled by default),
+capture-on-launch (off by default), and the game's 3D render scale (50%, 75%,
+or 100%; 100% by default). The Controls
 tab can rebind Forward, Backward, Left, and
 Right; Escape cancels a rebind and Reset restores WASD. The Display tab accepts
 custom width/height values and selects fullscreen for the next launch. Shift+F2
@@ -105,7 +106,10 @@ opens the legacy native dialog as a fallback. All options are saved in the
 settings file.
 `OPEN_CITADEL_CONFIG` can select a different settings file. Set
 `OPEN_CITADEL_NATIVE_MOUSE_LOOK=0` to disable the F3 capture option.
-`OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1` starts with the pointer captured.
+Enable **Capture mouse on launch** in the Game tab or set
+`capture_mouse_on_launch=true` in the settings file to start captured; Escape
+releases the pointer. `OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE` overrides that
+setting when set.
 
 On Windows, the Game tab offers **Disable the game's 60 FPS cap next launch**.
 The default is the game's 60 FPS cap; changing the option requires a restart.

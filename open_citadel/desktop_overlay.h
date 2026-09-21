@@ -18,6 +18,7 @@ enum class CommandType {
     SetUncappedBenchmark,
     SetResolutionScale,
     SetNativeMouseLook,
+    SetCaptureMouseOnLaunch,
     SetFullscreen,
     SaveResolution,
     BeginRebind,

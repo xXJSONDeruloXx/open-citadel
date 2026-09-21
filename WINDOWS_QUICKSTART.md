@@ -25,7 +25,8 @@ release capture. F1 shows controls, and F2 opens the in-game settings overlay.
 Its Game tab displays live FPS/frame time and
 controls mouse, VSync, frame-cap/benchmark settings, and the game's 3D render
 scale (50%, 75%, or 100%; 100% by default, applied next launch), plus native
-relative mouse look (enabled by default). Set
+relative mouse look (enabled by default) and **Capture mouse on launch** (off
+by default). Set
 `OPEN_CITADEL_RESOLUTION_SCALE` to `0.50`, `0.75`, or `1.00` to override it. Use
 Controls to rebind movement keys; Escape cancels a rebind and **Reset movement
 keys to WASD** restores defaults. Display accepts custom width/height and
@@ -38,8 +39,9 @@ transition still needs visual validation. Shift+F2 opens the
 legacy native settings dialog. Settings are saved under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`.
 Set `OPEN_CITADEL_NATIVE_MOUSE_LOOK=0` to disable F3 capture mode.
-Set `OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1` to start with the pointer
-captured; press F3 or Escape to release it.
+The Game tab's **Capture mouse on launch** option is saved as
+`capture_mouse_on_launch=true`; Escape releases the pointer. The environment
+variable `OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE` overrides the saved option.
 
 The game defaults to its 60 FPS cap. In the Game tab, enable **Disable the
 game's 60 FPS cap next launch** and restart to uncap it, or set

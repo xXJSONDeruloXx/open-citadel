@@ -16,6 +16,7 @@ int main()
 {
     open_citadel::UserSettings defaults;
     CHECK(defaults.native_mouse_look);
+    CHECK(!defaults.capture_mouse_on_launch);
 
     open_citadel::UserSettings settings;
     std::istringstream input(
@@ -29,6 +30,7 @@ int main()
         "mouse_sensitivity=9.0\n"
         "resolution_scale=0.75\n"
         "native_mouse_look=false\n"
+        "capture_mouse_on_launch=true\n"
         "invert_mouse_y=true\n"
         "move_forward=Up\n"
         "move_backward=Down\n"
@@ -47,6 +49,7 @@ int main()
     CHECK(settings.mouse_sensitivity == 4.0f);
     CHECK(settings.resolution_scale == 0.75f);
     CHECK(!settings.native_mouse_look);
+    CHECK(settings.capture_mouse_on_launch);
     CHECK(settings.invert_mouse_y);
     CHECK(settings.move_forward == "Up");
     CHECK(settings.move_backward == "Down");
@@ -67,6 +70,8 @@ int main()
     CHECK(round_trip.mouse_sensitivity == settings.mouse_sensitivity);
     CHECK(round_trip.resolution_scale == settings.resolution_scale);
     CHECK(round_trip.native_mouse_look == settings.native_mouse_look);
+    CHECK(round_trip.capture_mouse_on_launch ==
+          settings.capture_mouse_on_launch);
     CHECK(round_trip.invert_mouse_y == settings.invert_mouse_y);
     CHECK(round_trip.move_forward == settings.move_forward);
     CHECK(round_trip.move_backward == settings.move_backward);

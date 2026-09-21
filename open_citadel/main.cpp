@@ -906,7 +906,8 @@ int main(int argc, char **argv)
                 "OPEN_CITADEL_MOUSE_SENSITIVITY scales drag-look; "
                 "OPEN_CITADEL_INVERT_MOUSE_Y=1 flips vertical drag-look; "
                 "OPEN_CITADEL_NATIVE_MOUSE_LOOK=0 disables F3 relative-look; "
-                "OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1 starts captured; "
+                "OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1 starts captured "
+                "(overrides capture_mouse_on_launch); "
                 "OPEN_CITADEL_RESOLUTION_SCALE selects 0.50, 0.75, or 1.00; "
                 "OPEN_CITADEL_VSYNC=0 disables VSync; "
                 "OPEN_CITADEL_UNCAP_FPS=1 disables the Windows 60 FPS cap; "
@@ -1001,6 +1002,9 @@ int main(int argc, char **argv)
         "OPEN_CITADEL_INVERT_MOUSE_Y", settings.invert_mouse_y);
     settings.native_mouse_look = env_bool(
         "OPEN_CITADEL_NATIVE_MOUSE_LOOK", settings.native_mouse_look);
+    settings.capture_mouse_on_launch = env_bool(
+        "OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE",
+        settings.capture_mouse_on_launch);
 #if defined(_WIN32)
     const open_citadel::FramePacingMode frame_pacing =
         open_citadel::resolve_frame_pacing(
@@ -1020,8 +1024,10 @@ int main(int argc, char **argv)
     open_citadel_java_set_resolution_scale(settings.resolution_scale);
     fprintf(stderr, "OpenCitadel: game render scale=%d%%\n",
             (int)std::lround(settings.resolution_scale * 100.0f));
-    fprintf(stderr, "OpenCitadel: native relative mouse look=%s (F3 capture)\n",
-            settings.native_mouse_look ? "enabled" : "disabled");
+    fprintf(stderr,
+            "OpenCitadel: native relative mouse look=%s; capture on launch=%s\n",
+            settings.native_mouse_look ? "enabled" : "disabled",
+            settings.capture_mouse_on_launch ? "enabled" : "disabled");
 
     open_citadel::MovementKeyBindings movement_bindings;
     if (!movement_bindings.configure(
@@ -1422,6 +1428,10 @@ int main(int argc, char **argv)
                     release_native_mouse_look((jlong)SDL_GetTicks64());
                 general_settings_changed = true;
                 break;
+            case CommandType::SetCaptureMouseOnLaunch:
+                settings.capture_mouse_on_launch = command.enabled;
+                general_settings_changed = true;
+                break;
             case CommandType::SetFullscreen:
                 settings.fullscreen = command.enabled;
                 display_settings_changed = true;
@@ -1476,6 +1486,8 @@ int main(int argc, char **argv)
             saved_settings.mouse_sensitivity = settings.mouse_sensitivity;
             saved_settings.resolution_scale = settings.resolution_scale;
             saved_settings.native_mouse_look = settings.native_mouse_look;
+            saved_settings.capture_mouse_on_launch =
+                settings.capture_mouse_on_launch;
             saved_settings.invert_mouse_y = settings.invert_mouse_y;
             ++overlay_revision;
             if (!save_user_settings(settings_path, saved_settings))
@@ -1495,8 +1507,7 @@ int main(int argc, char **argv)
     };
 #endif
 
-    if (native_mouse_look_enabled &&
-        env_bool("OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE", false))
+    if (native_mouse_look_enabled && settings.capture_mouse_on_launch)
         capture_native_mouse_look((jlong)SDL_GetTicks64());
 
     while (running && !open_citadel_java_shutdown_requested()) {

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(OpenCitadelWindows VERSION 0.1.0 LANGUAGES CXX)
+project(OpenCitadelWindows VERSION 0.2.0 LANGUAGES CXX)
 
 if(POLICY CMP0207)
     cmake_policy(SET CMP0207 NEW)

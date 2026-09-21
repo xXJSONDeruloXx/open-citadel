@@ -213,7 +213,8 @@ the display. F11/Alt+Enter request borderless fullscreen toggles, but the live
 hotkey transition remains to be visually verified. A Windows settings file is created under
 `%APPDATA%\OpenCitadel\EpicCitadel\settings.ini`; width, height, fullscreen,
 VSync, the FPS cap, benchmark mode, render scale, mouse sensitivity, vertical
-inversion, native mouse-look availability, and movement keys are persistent;
+inversion, native mouse-look availability, capture-on-launch, and movement
+keys are persistent;
 `OPEN_CITADEL_CONFIG` can select another file.
 F2 opens the in-game Dear ImGui settings overlay. Its Game tab shows live
 frame-rate/frame-time readings and controls mouse-look, live VSync, and
@@ -224,7 +225,9 @@ it is enabled by default. The captured pointer drives the game's existing
 right-stick axes through the native controller callback, avoiding touch
 emulation in this mode; click-and-drag remains available as a fallback. Set
 `OPEN_CITADEL_NATIVE_MOUSE_LOOK=0` to disable F3 capture or
-`OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1` to start captured. The donor app
+`capture_mouse_on_launch=true` in the settings file (or set
+`OPEN_CITADEL_NATIVE_MOUSE_LOOK_CAPTURE=1`) to start captured; Escape releases
+the pointer. The environment variable overrides the saved setting. The donor app
 uses 50%, 75%, and
 100% render-scale tiers; the desktop defaults to 100%. Render scale is
 independent of window size and aspect ratio. Controls can rebind movement keys
