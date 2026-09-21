@@ -134,10 +134,12 @@ On Windows the window can also be resized live (minimum 320x240). Each resize
 updates UE3 with the GL drawable dimensions and scales mouse/touch coordinates
 to match; the windowed size is saved after resizing settles. A live resize from
 1280x720 to 1203x720 was visually checked with the scene still rendering.
-F11/Alt+Enter request borderless fullscreen, but the live hotkey transition
-still needs a separate visual validation pass. Environment variables override matching
-settings-file values. Mouse sensitivity defaults to `1.0` (accepted range
-`0.1`–`4.0`):
+Startup was also visually checked at 960x720 (4:3) and 1280x540 (2.37:1
+ultrawide); both reported matching drawable dimensions and rendered without
+letterboxing. F11/Alt+Enter request borderless fullscreen, but the live hotkey
+transition still needs a separate visual validation pass.
+Environment variables override matching settings-file values. Mouse sensitivity
+defaults to `1.0` (accepted range `0.1`–`4.0`):
 
 ```powershell
 $env:OPEN_CITADEL_MOUSE_SENSITIVITY = '1.5'
