@@ -752,6 +752,8 @@ void *win_dlopen(const char *name, int)
         return nullptr;
     if (!name)
         return module;
+    if (strcmp(name, "/system/lib/libOpenSLES.so") == 0)
+        return module;
     for (const char **library = so_builtin_libs; *library; ++library) {
         if (strcmp(name, *library) == 0)
             return module;

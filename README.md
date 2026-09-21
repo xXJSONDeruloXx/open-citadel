@@ -12,8 +12,9 @@ Windows SDL audio handles the Java MP3-song/WAV-sound callbacks, and display
 and mouse-look settings persist. A portable Windows ZIP now bundles the host,
 runtime DLLs, donor importer, and dependency notices without proprietary game
 data. WASD movement is confirmed working, and F2 opens an in-game settings
-overlay for controls, performance, and display options. Native gamepad support
-and OpenSL ES effects remain unfinished.
+overlay for controls, performance, and display options. An SDL-backed OpenSL ES
+PCM queue shim is implemented and tested; actual in-game use remains unverified.
+Physical gamepad behavior is also still unverified.
 The project began from the compatibility substrate developed in
 `i-port-katamari`, but Open Citadel is now a standalone project and is not
 limited to PortMaster.
@@ -30,12 +31,14 @@ NVIDIA GeForce RTX 4090 through ANGLE. The bring-up has verified:
 - ATITC fallback using the texture caches shipped in the donor
 - visible 3D scene rendering; mouse click/drag reaches the game's touch UI
 - native SDL audio device started the donor's `town_render` MP3 callback
-- MP3/WAV decoding and playback tests, plus eight Windows loader/ABI/input/
-  settings/audio tests
+- MP3/WAV and OpenSL PCM queue playback tests, plus 13 Windows loader/ABI/
+  input/settings/audio tests
 
 This is a working bring-up, not a finished port. The Java audio callback path
-now plays donor music and supports WAV sound callbacks. WASD movement has been
-confirmed; native gamepad input and OpenSL ES are not implemented yet.
+plays donor music and supports WAV sound callbacks. The OpenSL ES compatibility
+shim passes a dummy-device queue/callback/re-enqueue test, but the latest live
+scene-startup smoke run did not enter that path. WASD movement is confirmed;
+physical gamepad behavior is not.
 Clean-machine validation and an installer remain future work; the portable ZIP
 can be generated with CPack.
 
@@ -168,7 +171,11 @@ after the initial scene frames.
 
 Windows audio uses SDL output with mpg123 for MP3 music and SDL decoding for
 WAV effects. `LOADER_TRACE=1` prints audio-device and callback diagnostics.
-The UE3 OpenSL ES path is a separate, unfinished compatibility item.
+Android OpenSL ES engine/output-mix/player calls and mono/stereo PCM16 buffer
+queues are routed to the SDL mixer. The dummy-device test covers queue
+completion, callback re-enqueue, state, clear, volume, and teardown. Actual
+in-game use of this path has not yet been observed, so game-side effects remain
+to be verified.
 
 ## Donor policy
 

@@ -5,9 +5,11 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <climits>
@@ -30,6 +32,33 @@
 #include "trace.h"
 
 namespace open_citadel::audio {
+
+struct OpenSlBufferQueue {
+    struct Buffer {
+        std::vector<int16_t> pcm;
+        size_t position_frames = 0;
+    };
+
+    uint32_t sample_rate = 0;
+    uint32_t channels = 0;
+    uint32_t bits_per_sample = 0;
+    int output_rate = 0;
+    size_t max_buffers = 0;
+    std::deque<Buffer> buffers;
+    bool playing = false;
+    float gain = 1.0f;
+    int pan_permille = 0;
+    uint64_t played_frames = 0;
+    uint32_t buffer_index = 0;
+    OpenSlBufferCompletion callback = nullptr;
+    void *callback_context = nullptr;
+    std::shared_ptr<void> callback_lifetime;
+    std::atomic<bool> destroying{false};
+    std::atomic<size_t> callbacks_in_flight{0};
+    std::mutex callback_mutex;
+    std::condition_variable callback_finished;
+};
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -39,6 +68,11 @@ constexpr size_t kSoundCount = 64;
 constexpr size_t kVoiceCount = 32;
 constexpr int kVoiceIdBase = 1000;
 constexpr int kOutputRate = 44100;
+constexpr size_t kOpenSlQueueCount = 32;
+constexpr size_t kMaxOpenSlBuffersPerQueue = 32;
+constexpr size_t kMaxOpenSlCompletionJobs =
+    kOpenSlQueueCount * kMaxOpenSlBuffersPerQueue;
+constexpr size_t kMaxOpenSlBufferBytes = 16u * 1024u * 1024u;
 
 struct SoundSample {
     bool loaded = false;
@@ -65,6 +99,10 @@ bool g_mpg123_initialized = false;
 std::array<SoundSample, kSoundCount> g_sounds;
 std::array<Voice, kVoiceCount> g_voices;
 Voice g_song;
+std::array<std::shared_ptr<OpenSlBufferQueue>, kOpenSlQueueCount>
+    g_open_sl_queues;
+std::mutex g_open_sl_api_mutex;
+std::atomic<bool> g_audio_shutting_down{false};
 std::atomic<unsigned int> g_trace_events{0};
 
 void trace_audio(const char *operation, int id, const char *name = nullptr)
@@ -118,6 +156,74 @@ void mix_voice(Voice &voice, int16_t *output, size_t frames)
     }
 }
 
+struct OpenSlCompletionJob {
+    std::shared_ptr<OpenSlBufferQueue> queue;
+    std::shared_ptr<void> callback_lifetime;
+    OpenSlBufferCompletion callback = nullptr;
+    void *context = nullptr;
+};
+
+thread_local bool g_inside_open_sl_completion = false;
+
+void mix_open_sl_queue(
+    const std::shared_ptr<OpenSlBufferQueue> &queue, int16_t *output,
+    size_t frames,
+    std::array<OpenSlCompletionJob, kMaxOpenSlCompletionJobs> *jobs,
+    size_t *job_count)
+{
+    if (!queue || !queue->playing || queue->destroying.load(
+            std::memory_order_relaxed))
+        return;
+
+    const float pan = static_cast<float>(queue->pan_permille) / 1000.0f;
+    const float left_gain = queue->gain * (pan > 0.0f ? 1.0f - pan : 1.0f);
+    const float right_gain = queue->gain * (pan < 0.0f ? 1.0f + pan : 1.0f);
+    size_t output_frame = 0;
+    while (output_frame < frames && !queue->buffers.empty()) {
+        OpenSlBufferQueue::Buffer &buffer = queue->buffers.front();
+        const size_t buffer_frames = buffer.pcm.size() / 2;
+        if (buffer.position_frames >= buffer_frames) {
+            queue->buffers.pop_front();
+            ++queue->buffer_index;
+            if (queue->callback && *job_count < jobs->size()) {
+                queue->callbacks_in_flight.fetch_add(
+                    1, std::memory_order_relaxed);
+                (*jobs)[(*job_count)++] = {
+                    queue, queue->callback_lifetime, queue->callback,
+                    queue->callback_context};
+            }
+            continue;
+        }
+
+        const size_t frame_count = std::min(
+            frames - output_frame, buffer_frames - buffer.position_frames);
+        for (size_t frame = 0; frame < frame_count; ++frame) {
+            const size_t source_index = (buffer.position_frames + frame) * 2;
+            const size_t output_index = (output_frame + frame) * 2;
+            const int left = static_cast<int>(output[output_index]) +
+                static_cast<int>(buffer.pcm[source_index] * left_gain);
+            const int right = static_cast<int>(output[output_index + 1]) +
+                static_cast<int>(buffer.pcm[source_index + 1] * right_gain);
+            output[output_index] = clamp_sample(left);
+            output[output_index + 1] = clamp_sample(right);
+        }
+        buffer.position_frames += frame_count;
+        queue->played_frames += frame_count;
+        output_frame += frame_count;
+        if (buffer.position_frames == buffer_frames) {
+            queue->buffers.pop_front();
+            ++queue->buffer_index;
+            if (queue->callback && *job_count < jobs->size()) {
+                queue->callbacks_in_flight.fetch_add(
+                    1, std::memory_order_relaxed);
+                (*jobs)[(*job_count)++] = {
+                    queue, queue->callback_lifetime, queue->callback,
+                    queue->callback_context};
+            }
+        }
+    }
+}
+
 void audio_callback(void *, Uint8 *stream, int length)
 {
     if (!stream || length <= 0)
@@ -129,11 +235,32 @@ void audio_callback(void *, Uint8 *stream, int length)
 
     int16_t *output = reinterpret_cast<int16_t *>(stream);
     const size_t frames = static_cast<size_t>(length) / (sizeof(int16_t) * 2);
+    std::array<OpenSlCompletionJob, kMaxOpenSlCompletionJobs> completion_jobs;
+    size_t completion_count = 0;
     SDL_LockMutex(g_audio_mutex);
     mix_voice(g_song, output, frames);
     for (Voice &voice : g_voices)
         mix_voice(voice, output, frames);
+    for (const auto &queue : g_open_sl_queues)
+        mix_open_sl_queue(queue, output, frames, &completion_jobs,
+                          &completion_count);
     SDL_UnlockMutex(g_audio_mutex);
+
+    for (size_t i = 0; i < completion_count; ++i) {
+        OpenSlCompletionJob &job = completion_jobs[i];
+        g_inside_open_sl_completion = true;
+        try {
+            job.callback(job.context);
+        } catch (...) {
+            trace("OpenCitadel OpenSL buffer callback threw an exception");
+        }
+        g_inside_open_sl_completion = false;
+        if (job.queue->callbacks_in_flight.fetch_sub(
+                1, std::memory_order_acq_rel) == 1) {
+            std::lock_guard<std::mutex> lock(job.queue->callback_mutex);
+            job.queue->callback_finished.notify_all();
+        }
+    }
 }
 
 void ensure_initialized()
@@ -142,6 +269,7 @@ void ensure_initialized()
     if (g_initialized)
         return;
     g_initialized = true;
+    g_audio_shutting_down.store(false, std::memory_order_release);
 
     if (!(SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) &&
         SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
@@ -216,6 +344,61 @@ bool convert_audio(const SDL_AudioSpec &source, const Uint8 *data,
     if (!okay)
         output->clear();
     return okay;
+}
+
+bool convert_open_sl_pcm(uint32_t sample_rate, uint32_t channels,
+                         uint32_t bits_per_sample, int output_rate,
+                         const void *buffer, size_t size,
+                         std::vector<int16_t> *output)
+{
+    if (!buffer || !output || !sample_rate || !output_rate ||
+        (channels != 1 && channels != 2) || bits_per_sample != 16 ||
+        !size || size > kMaxOpenSlBufferBytes ||
+        size % (channels * sizeof(int16_t)) != 0 ||
+        size > static_cast<size_t>(INT_MAX))
+        return false;
+
+    SDL_AudioStream *stream = SDL_NewAudioStream(
+        AUDIO_S16LSB, static_cast<Uint8>(channels),
+        static_cast<int>(sample_rate), AUDIO_S16SYS, 2, output_rate);
+    if (!stream)
+        return false;
+
+    bool okay = SDL_AudioStreamPut(stream, static_cast<const Uint8 *>(buffer),
+                                   static_cast<int>(size)) == 0 &&
+                SDL_AudioStreamFlush(stream) == 0;
+    if (okay) {
+        const int available = SDL_AudioStreamAvailable(stream);
+        constexpr int output_frame_bytes = sizeof(int16_t) * 2;
+        if (available <= 0 ||
+            static_cast<size_t>(available) > kMaxOpenSlBufferBytes ||
+            available % output_frame_bytes != 0) {
+            okay = false;
+        } else {
+            try {
+                output->resize(static_cast<size_t>(available) /
+                               sizeof(int16_t));
+            } catch (...) {
+                okay = false;
+            }
+            if (okay && SDL_AudioStreamGet(stream, output->data(), available) !=
+                            available)
+                okay = false;
+        }
+    }
+    SDL_FreeAudioStream(stream);
+    if (!okay)
+        output->clear();
+    return okay;
+}
+
+bool open_sl_queue_is_registered(
+    const std::shared_ptr<OpenSlBufferQueue> &queue)
+{
+    return std::any_of(g_open_sl_queues.begin(), g_open_sl_queues.end(),
+                       [&queue](const auto &entry) {
+                           return entry.get() == queue.get();
+                       });
 }
 
 bool decode_wav(const Uint8 *data, size_t length,
@@ -690,25 +873,291 @@ void update_song(float value)
         trace("OpenCitadel audio song update callback received (%.3f)", value);
 }
 
+std::shared_ptr<OpenSlBufferQueue> create_open_sl_buffer_queue(
+    uint32_t sample_rate, uint32_t channels, uint32_t bits_per_sample,
+    size_t max_buffers, OpenSlBufferCompletion callback, void *context,
+    std::shared_ptr<void> callback_lifetime)
+{
+    if (!sample_rate || (channels != 1 && channels != 2) ||
+        bits_per_sample != 16 || !max_buffers)
+        return {};
+
+    ensure_initialized();
+    std::shared_ptr<OpenSlBufferQueue> queue;
+    try {
+        queue = std::make_shared<OpenSlBufferQueue>();
+    } catch (...) {
+        return {};
+    }
+    queue->sample_rate = sample_rate;
+    queue->channels = channels;
+    queue->bits_per_sample = bits_per_sample;
+    queue->max_buffers = std::min(max_buffers, kMaxOpenSlBuffersPerQueue);
+    queue->callback = callback;
+    queue->callback_context = context;
+    queue->callback_lifetime = std::move(callback_lifetime);
+
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (g_audio_shutting_down.load(std::memory_order_acquire) ||
+        !g_audio_mutex)
+        return {};
+    queue->output_rate = g_audio_spec.freq > 0 ? g_audio_spec.freq : kOutputRate;
+    SDL_LockMutex(g_audio_mutex);
+    for (auto &slot : g_open_sl_queues) {
+        if (slot)
+            continue;
+        slot = queue;
+        SDL_UnlockMutex(g_audio_mutex);
+        trace("OpenCitadel OpenSL audio queue created (%u Hz, %u ch, %zu max)",
+              sample_rate, channels, queue->max_buffers);
+        return queue;
+    }
+    SDL_UnlockMutex(g_audio_mutex);
+    trace("OpenCitadel OpenSL audio queue limit reached");
+    return {};
+}
+
+bool enqueue_open_sl_buffer(const std::shared_ptr<OpenSlBufferQueue> &queue,
+                            const void *buffer, size_t size)
+{
+    if (!queue || queue->destroying.load(std::memory_order_acquire))
+        return false;
+    std::vector<int16_t> pcm;
+    if (!convert_open_sl_pcm(queue->sample_rate, queue->channels,
+                             queue->bits_per_sample, queue->output_rate,
+                             buffer, size, &pcm) || pcm.empty())
+        return false;
+
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (g_audio_shutting_down.load(std::memory_order_acquire) ||
+        !g_audio_mutex)
+        return false;
+    SDL_LockMutex(g_audio_mutex);
+    if (queue->destroying.load(std::memory_order_relaxed) ||
+        !open_sl_queue_is_registered(queue) ||
+        queue->buffers.size() >= queue->max_buffers) {
+        SDL_UnlockMutex(g_audio_mutex);
+        return false;
+    }
+    try {
+        queue->buffers.push_back({std::move(pcm), 0});
+    } catch (...) {
+        SDL_UnlockMutex(g_audio_mutex);
+        return false;
+    }
+    SDL_UnlockMutex(g_audio_mutex);
+    return true;
+}
+
+void clear_open_sl_buffer_queue(
+    const std::shared_ptr<OpenSlBufferQueue> &queue)
+{
+    if (!queue)
+        return;
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (g_audio_shutting_down.load(std::memory_order_acquire) ||
+        !g_audio_mutex)
+        return;
+    SDL_LockMutex(g_audio_mutex);
+    if (!queue->destroying.load(std::memory_order_relaxed) &&
+        open_sl_queue_is_registered(queue)) {
+        queue->buffers.clear();
+        queue->played_frames = 0;
+        queue->buffer_index = 0;
+    }
+    SDL_UnlockMutex(g_audio_mutex);
+}
+
+void set_open_sl_buffer_queue_playing(
+    const std::shared_ptr<OpenSlBufferQueue> &queue, bool playing)
+{
+    if (!queue)
+        return;
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (g_audio_shutting_down.load(std::memory_order_acquire) ||
+        !g_audio_mutex)
+        return;
+    SDL_LockMutex(g_audio_mutex);
+    if (!queue->destroying.load(std::memory_order_relaxed) &&
+        open_sl_queue_is_registered(queue))
+        queue->playing = playing;
+    SDL_UnlockMutex(g_audio_mutex);
+}
+
+void set_open_sl_buffer_queue_gain(
+    const std::shared_ptr<OpenSlBufferQueue> &queue, float gain)
+{
+    if (!queue)
+        return;
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (g_audio_shutting_down.load(std::memory_order_acquire) ||
+        !g_audio_mutex)
+        return;
+    SDL_LockMutex(g_audio_mutex);
+    if (!queue->destroying.load(std::memory_order_relaxed) &&
+        open_sl_queue_is_registered(queue))
+        queue->gain = std::isfinite(gain) ? std::clamp(gain, 0.0f, 4.0f) : 0.0f;
+    SDL_UnlockMutex(g_audio_mutex);
+}
+
+void set_open_sl_buffer_queue_pan(
+    const std::shared_ptr<OpenSlBufferQueue> &queue, int permille)
+{
+    if (!queue)
+        return;
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (g_audio_shutting_down.load(std::memory_order_acquire) ||
+        !g_audio_mutex)
+        return;
+    SDL_LockMutex(g_audio_mutex);
+    if (!queue->destroying.load(std::memory_order_relaxed) &&
+        open_sl_queue_is_registered(queue))
+        queue->pan_permille = std::clamp(permille, -1000, 1000);
+    SDL_UnlockMutex(g_audio_mutex);
+}
+
+uint32_t get_open_sl_buffer_queue_count(
+    const std::shared_ptr<OpenSlBufferQueue> &queue)
+{
+    if (!queue)
+        return 0;
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (!g_audio_mutex)
+        return 0;
+    SDL_LockMutex(g_audio_mutex);
+    const uint32_t count = static_cast<uint32_t>(std::min<size_t>(
+        queue->buffers.size(), UINT32_MAX));
+    SDL_UnlockMutex(g_audio_mutex);
+    return count;
+}
+
+uint32_t get_open_sl_buffer_queue_index(
+    const std::shared_ptr<OpenSlBufferQueue> &queue)
+{
+    if (!queue)
+        return 0;
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (!g_audio_mutex)
+        return 0;
+    SDL_LockMutex(g_audio_mutex);
+    const uint32_t index = queue->buffer_index;
+    SDL_UnlockMutex(g_audio_mutex);
+    return index;
+}
+
+uint64_t get_open_sl_buffer_queue_position_ms(
+    const std::shared_ptr<OpenSlBufferQueue> &queue)
+{
+    if (!queue)
+        return 0;
+    std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+    if (!g_audio_mutex)
+        return 0;
+    SDL_LockMutex(g_audio_mutex);
+    const uint64_t position_ms = queue->output_rate > 0
+        ? queue->played_frames * 1000u /
+              static_cast<uint64_t>(queue->output_rate)
+        : 0;
+    SDL_UnlockMutex(g_audio_mutex);
+    return position_ms;
+}
+
+void destroy_open_sl_buffer_queue(
+    std::shared_ptr<OpenSlBufferQueue> *queue_pointer)
+{
+    if (!queue_pointer || !*queue_pointer)
+        return;
+    const std::shared_ptr<OpenSlBufferQueue> queue = *queue_pointer;
+    {
+        std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+        if (g_audio_mutex) {
+            SDL_LockMutex(g_audio_mutex);
+            queue->destroying.store(true, std::memory_order_release);
+            queue->playing = false;
+            queue->buffers.clear();
+            queue->callback = nullptr;
+            queue->callback_context = nullptr;
+            queue->callback_lifetime.reset();
+            for (auto &slot : g_open_sl_queues) {
+                if (slot.get() == queue.get())
+                    slot.reset();
+            }
+            SDL_UnlockMutex(g_audio_mutex);
+        } else {
+            queue->destroying.store(true, std::memory_order_release);
+        }
+    }
+
+    if (!g_inside_open_sl_completion) {
+        std::unique_lock<std::mutex> lock(queue->callback_mutex);
+        queue->callback_finished.wait(lock, [&queue] {
+            return queue->callbacks_in_flight.load(
+                       std::memory_order_acquire) == 0;
+        });
+    }
+    queue_pointer->reset();
+}
+
 void shutdown()
 {
-    std::lock_guard<std::mutex> guard(g_init_mutex);
+    std::unique_lock<std::mutex> guard(g_init_mutex);
     if (!g_initialized)
         return;
-    if (g_audio_device) {
-        SDL_CloseAudioDevice(g_audio_device);
+    if (g_audio_shutting_down.exchange(true, std::memory_order_acq_rel))
+        return;
+
+    std::array<std::shared_ptr<OpenSlBufferQueue>, kOpenSlQueueCount>
+        closing_queues;
+    SDL_AudioDeviceID closing_device = 0;
+    {
+        std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+        if (g_audio_mutex) {
+            SDL_LockMutex(g_audio_mutex);
+            for (size_t i = 0; i < g_open_sl_queues.size(); ++i) {
+                closing_queues[i] = std::move(g_open_sl_queues[i]);
+                if (!closing_queues[i])
+                    continue;
+                closing_queues[i]->destroying.store(
+                    true, std::memory_order_release);
+                closing_queues[i]->playing = false;
+                closing_queues[i]->buffers.clear();
+                closing_queues[i]->callback = nullptr;
+                closing_queues[i]->callback_context = nullptr;
+                closing_queues[i]->callback_lifetime.reset();
+            }
+            SDL_UnlockMutex(g_audio_mutex);
+        }
+        closing_device = g_audio_device;
         g_audio_device = 0;
     }
-    if (g_audio_mutex) {
-        SDL_LockMutex(g_audio_mutex);
-        g_song = Voice{};
-        for (Voice &voice : g_voices)
-            voice = Voice{};
-        for (SoundSample &sample : g_sounds)
-            sample = SoundSample{};
-        SDL_UnlockMutex(g_audio_mutex);
-        SDL_DestroyMutex(g_audio_mutex);
-        g_audio_mutex = nullptr;
+    guard.unlock();
+
+    if (closing_device)
+        SDL_CloseAudioDevice(closing_device);
+    for (const auto &queue : closing_queues) {
+        if (!queue)
+            continue;
+        std::unique_lock<std::mutex> lock(queue->callback_mutex);
+        queue->callback_finished.wait(lock, [&queue] {
+            return queue->callbacks_in_flight.load(
+                       std::memory_order_acquire) == 0;
+        });
+    }
+
+    guard.lock();
+    {
+        std::lock_guard<std::mutex> api_lock(g_open_sl_api_mutex);
+        if (g_audio_mutex) {
+            SDL_LockMutex(g_audio_mutex);
+            g_song = Voice{};
+            for (Voice &voice : g_voices)
+                voice = Voice{};
+            for (SoundSample &sample : g_sounds)
+                sample = SoundSample{};
+            SDL_UnlockMutex(g_audio_mutex);
+            SDL_DestroyMutex(g_audio_mutex);
+            g_audio_mutex = nullptr;
+        }
     }
     if (g_mpg123_initialized) {
         mpg123_exit();

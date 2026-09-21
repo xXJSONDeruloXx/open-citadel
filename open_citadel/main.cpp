@@ -35,6 +35,7 @@
 #include "jni.h"
 #include "classes/ue3_java_app.h"
 #include "classes/citadel_audio.h"
+#include "opensles_compat.h"
 #include "trace.h"
 #include "crash.h"
 #include "gles2_probe.h"
@@ -2155,6 +2156,7 @@ int main(int argc, char **argv)
             open_citadel_gl_programs_ok(), open_citadel_gl_programs_failed());
     native_cleanup(env, activity);
 
+    open_citadel::opensles::shutdown();
     open_citadel::audio::shutdown();
     SDL_GL_MakeCurrent(window, gl);
 #if defined(_WIN32)

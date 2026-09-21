@@ -174,6 +174,7 @@ if(OPEN_CITADEL_BUILD_APP)
         ../../open_citadel/gles2_probe.cpp
         ../../open_citadel/io_util.cpp
         ../../open_citadel/main.cpp
+        ../../open_citadel/opensles_compat.cpp
         ../../open_citadel/stdio_win32.cpp
         ../../open_citadel/symtab.cpp
         ../../open_citadel/symtab_libc_win32.cpp
@@ -352,4 +353,40 @@ if(OPEN_CITADEL_BUILD_APP)
         endif()
     endforeach()
     add_test(NAME audio-mixer COMMAND open_citadel_audio_test)
+
+    add_executable(open_citadel_opensles_test
+        opensles_test.cpp
+        ../../open_citadel/opensles_compat.cpp
+        ../../jni/classes/citadel_audio.cpp
+        ../../src/trace.cpp
+    )
+    target_include_directories(open_citadel_opensles_test PRIVATE
+        ../../jni/classes
+        ../../loader
+        ../../open_citadel
+        ../../src
+        ../../thunks
+    )
+    target_compile_features(open_citadel_opensles_test PRIVATE cxx_std_20)
+    target_compile_definitions(open_citadel_opensles_test PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+        SDL_MAIN_HANDLED
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+    target_link_libraries(open_citadel_opensles_test PRIVATE
+        $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
+        MPG123::libmpg123
+    )
+    foreach(runtime_target IN ITEMS SDL2::SDL2 MPG123::libmpg123)
+        if(TARGET ${runtime_target})
+            add_custom_command(TARGET open_citadel_opensles_test POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:${runtime_target}>"
+                    "$<TARGET_FILE_DIR:open_citadel_opensles_test>"
+                VERBATIM
+            )
+        endif()
+    endforeach()
+    add_test(NAME opensles-pcm-queue COMMAND open_citadel_opensles_test)
 endif()

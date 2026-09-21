@@ -19,6 +19,7 @@ extern DynLibFunction symtable_bionic[];
 extern DynLibFunction symtable_off[];
 #if defined(_WIN32)
 extern DynLibFunction symtable_stdio_win32[];
+extern DynLibFunction symtable_open_citadel_opensles[];
 #endif
 #if defined(__arm__)
 extern DynLibFunction symtable_setjmp[];
@@ -39,6 +40,9 @@ const char *so_builtin_libs[] = {
     "libEGL.so",
     "libGLESv2.so",
     "libandroid.so",
+#if defined(_WIN32)
+    "libOpenSLES.so",
+#endif
     nullptr,
 };
 
@@ -70,6 +74,7 @@ DynLibFunction *so_dynamic_libraries[] = {
     symtable_gles2,
     symtable_libm,
 #if defined(_WIN32)
+    symtable_open_citadel_opensles,
     symtable_stdio_win32,
 #endif
     symtable_libc,

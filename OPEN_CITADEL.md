@@ -264,8 +264,13 @@ launch. Input tracing records SDL key events and the guest callback results for
 keyboard and virtual-stick delivery. SDL opens a native
 44.1 kHz stereo device; the donor's `town_render` MP3 and a real donor WAV have
 both decoded in tests, and a no-`-nosound` game run reached the song callback.
-OpenSL ES is not implemented, so engine-side effects may still be silent.
-Physical gamepad behavior and a clean-machine/CI run remain open.
+The Windows OpenSL ES shim implements engine/output-mix/player creation,
+volume/play interfaces, and Android PCM16 mono/stereo buffer queues through the
+SDL mixer. A dummy-device integration test verifies completion callbacks,
+re-enqueue, queue state/clear, volume, and teardown. The latest live scene
+startup smoke run did not enter the OpenSL ES path, so in-game effect behavior
+remains unverified. Physical gamepad behavior and a clean-machine/CI run remain
+open.
 A CPack ZIP now packages the Windows host, runtime DLLs, donor importer, and
 dependency notices while excluding the proprietary game data. Linux and other
 native hosts are follow-on targets.
@@ -284,10 +289,11 @@ The validation sequence is:
 
 The Windows loader memory backend and ELF32 ABI parser have dedicated Win32
 tests, the GLES resolver has a 32-bit cdecl-to-stdcall regression test, and the
-SDL mixer has a dummy-device WAV/stream lifecycle test. The native application
-reaches a rendered scene and confirmed WASD movement; the remaining gates
-include movement-rebind and physical gamepad verification, OpenSL ES effects,
-settings polish, packaging, and automated Windows validation. The existing
+SDL mixer has dummy-device WAV/stream and OpenSL queue lifecycle tests. The
+native application reaches a rendered scene and confirmed WASD movement; the
+remaining gates include movement-rebind and physical gamepad verification,
+live OpenSL ES effect verification, settings polish, and automated Windows
+validation. The existing
 Linux x86 CI build remains a useful secondary platform check, not the current
 deliverable.
 
@@ -316,7 +322,7 @@ deliverable.
 - [x] manual end-to-end WASD movement verification
 - [ ] movement-key rebind verification
 - [ ] native gamepad behavior
-- [ ] OpenSL ES compatibility
+- [ ] verify OpenSL ES PCM effects through the actual in-game path (shim and queue test are implemented)
 - [x] persistent Windows settings, custom display sizes, render scale, and live performance overlay
 - [x] live visual validation of the ImGui settings panel and tab mouse navigation
 - [ ] F2 open/close shortcut validation with physical keyboard (desktop key injection was inconclusive)
